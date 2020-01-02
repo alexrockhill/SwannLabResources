@@ -3,12 +3,18 @@ import os.path as op
 import numpy as np
 import json
 from pandas import concat, read_csv
+from bids import BIDSLayout
 
 
 def get_config():
     with open('./params.json', 'r') as f:
         config = json.load(f)
     return config
+
+
+def get_layout():
+
+    return layout
 
 
 def make_derivatives_dir(subject):
@@ -27,6 +33,13 @@ def get_dfs(behs):
         df_list.append(df)
     dfs = concat(df_list)
     return dfs
+
+
+def exclude_subjects(bids_list):
+    config = get_config()
+    bids_list = [bids_item for bids_item in bids_list if
+                 bids_item.entities['subject'] not in
+                 config['exclude_subjects']]
 
 
 def get_events(df, events, event, condition, value):

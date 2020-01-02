@@ -6,11 +6,12 @@ from pandas import read_csv
 import seaborn as sns
 from scipy.stats import ttest_ind
 
-from ..utils import get_config, make_derivatives_dir
+from swann.utils import get_config, make_derivatives_dir
 
 from pactools import Comodulogram, raw_to_mask
 
 
+# need to remove the computations?
 def plot_pac(subject, raw, ch_names=None, events=None, tmin=None, tmax=None):
     config = get_config()
     make_derivatives_dir(subject)
@@ -74,68 +75,82 @@ def plot_find_bads(raw, subject):
         fig.savefig(psdf.replace('.png', '2.png'))
 
 
-def plot_slow_fast(dfs):
+def plot_slow_fast_group(dfs):
     config = get_config()
     slow_fast = config['task_params']
     for subject in np.unique(dfs['Subject']):
         make_derivatives_dir(subject)
         df = dfs[dfs['Subject'] == subject]
-        fig, ax = plt.subplots()
-        g = sns.catplot(x=slow_fast['name_col'], y=config['response_col'],
-                        data=df, height=6, kind='bar', palette='muted', ax=ax)
-        g.despine(left=True)
-        ax.set_xlabel('Slow or Fast')
-        ax.set_ylabel('Response Time')
-        ax.set_xticklabels([slow_fast['0'], slow_fast['1']])
-        t, p = ttest_ind(
-            df[df[slow_fast['name_col']] == 0][config['response_col']],
-            df[df[slow_fast['name_col']] == 1][config['response_col']])
-        ax.set_title('Subject %s, p = %.3f' % (subject, p))
-        fig.savefig(op.join(config['bids_dir'], 'derivatives',
-                            'sub-%s' % subject, 'sub-%s_rt_bar.png' % subject))
-        fig.show()
 
-        n_blocks = len(np.unique(df[config['block_col']]))
-        fig, axes = plt.subplots(1, n_blocks + 1)
-        fig.set_size_inches(12, 4)
-        fig.tight_layout()
-        for i, block in enumerate(np.unique(df[config['block_col']])):
-            axes[i].set_xlabel('Trials')
-            axes[i].set_title('Block %s' % block)
-            axes[i].set_ylabel('Response Time')
-            axes[i].set_ylim([0.2, 1.5])
-            this_block = df[df[config['block_col']] == block]
-            this_slow_or_fast = \
-                slow_fast[str(list(this_block[slow_fast['name_col']])[0])]
-            if this_slow_or_fast == 'slow':
-                color = 'b'  # (0, 0, 0.5 + (1 / n_blocks) * block / 2)
-            else:
-                color = 'r'  # (0.5 + (1 / n_blocks) * block / 2, 0, 0)
-            axes[i].plot(list(this_block[config['response_col']]),
-                         color=color)
-        axes[-1].plot([0], [0], color='b', label='Slow')
-        axes[-1].plot([0], [0], color='r', label='Fast')
-        axes[-1].axis('off')
-        axes[-1].legend()
-        fig.savefig(op.join(config['bids_dir'], 'derivatives',
-                            'sub-%s' % subject,
-                            'sub-%s_rt_time_course.png' % subject))
-        fig.show()
 
-        fig, ax = plt.subplots()
-        fig.set_size_inches(6, 6)
-        fig.tight_layout()
-        slow = df.loc[[i for i, sf in
-                       enumerate(list(df[slow_fast['name_col']]))
-                       if slow_fast[str(sf)] == 'slow']]
-        fast = df.loc[[i for i, sf in
-                       enumerate(list(df[slow_fast['name_col']]))
-                       if slow_fast[str(sf)] == 'fast']]
-        ax.set_title('Subject %s' % subject)
-        ax.set_ylabel('Response Time')
-        sns.distplot(slow[config['response_col']], ax=ax, label='Slow')
-        sns.distplot(fast[config['response_col']], ax=ax, label='Fast')
-        ax.legend()
-        fig.savefig(op.join(config['bids_dir'], 'derivatives',
-                            'sub-%s' % subject,
-                            'sub-%s_rt_dist.png' % subject))
+def plot_slow_fast(behf, axes=None, overwrite=False):
+    config = get_config()
+    slow_fast = config['task_params']
+    subject = behf.entities['subject']
+    plotf = op.join(config['bids_dir'], 'derivatives',
+                    'sub-%s' % subject,
+                    'sub-%s_slowfast.png' % subject)
+    if op.isfile(plotf) and not overwrite:
+        if input('Slowfast plot already exists, overwrite? (Y/N)') != 'Y':
+            return
+    df = read_csv(behf.path, sep='\t')
+    if axes is None:
+        fig, (ax0, ax1) = plt.subplots(2, 1)
+    else:
+        if len(axes) != 2:
+            raise ValueError('Three axes required for slow fast plots')
+    fig.set_size_inches(6, 12)
+    fig.tight_layout()
+    fast = df.loc[[i for i, sf in
+                   enumerate(list(df[slow_fast['name_col']]))
+                   if slow_fast[str(sf)] == 'fast']]
+    fast2 = fast[fast[config['response_col']] > 0.1]
+    slow = df.loc[[i for i, sf in
+                   enumerate(list(df[slow_fast['name_col']]))
+                   if slow_fast[str(sf)] == 'slow']]
+    slow2 = slow[slow[config['response_col']] > 0.1]
+    n_to_exclude = (len(fast) - len(fast2)) - (len(slow) - len(slow2))
+    if n_to_exclude < 0:
+        raise ValueError('More no responses for subject %s ' % subject +
+                         'on slow blocks than fast. This is not expected, ' +
+                         'exclude subject')
+    slow2 = slow2.reset_index()
+    indices = list(np.argsort(slow2[config['response_col']])[:-n_to_exclude])
+    slow2 = slow2.iloc[indices]
+    sns.distplot(slow2[config['response_col']], ax=ax0,
+                 color='blue', label='Slow')
+    sns.distplot(fast2[config['response_col']], ax=ax0,
+                 color='red', label='Fast')
+    ax0.legend()
+    ax0.set_xlabel('Response Time')
+    ax0.set_ylabel('Count')
+    ax0.set_xlim([0, max([slow2[config['response_col']].max(),
+                          fast2[config['response_col']].max()]) * 1.1])
+    t, p = ttest_ind(
+        slow2[config['response_col']], fast2[config['response_col']])
+    if p < 0.001:
+        ax0.set_title('Subject %s, p < 0.001' % subject)
+    else:
+        ax0.set_title('Subject %s, p = %.3f' % (subject, p))
+
+    slow2 = slow2.sort_values(by=config['trial_col'])
+
+    for b in range(int(len(df) / config['n_trials_per_block'])):
+        this_block = df[(b * config['n_trials_per_block'] <
+                         df[config['trial_col']]) &
+                        (df[config['trial_col']] <=
+                         (b + 1) * config['n_trials_per_block'])]
+        this_block = this_block.reset_index()
+        this_block = this_block[this_block[config['response_col']] > 0.1]
+        color = ('blue' if list(this_block[slow_fast['name_col']])[0] ==
+                 slow_fast['slow'] else 'red')
+        ax1.plot(this_block.index,
+                 this_block[config['response_col']],
+                 color=color)
+    ax1.plot(0, 0, color='blue', label='slow')
+    ax1.plot(0, 0, color='red', label='fast')
+    ax1.set_xlabel('Trial')
+    ax1.set_ylabel('Response Time')
+    ax1.legend()
+    fig.savefig(plotf)
+    return ax0.get_figure()
