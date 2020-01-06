@@ -2,9 +2,9 @@ import os
 import os.path as op
 import numpy as np
 import sys
-from scipy.io import loadmat
 import matplotlib.pyplot as plt
-from pandas import DataFrame
+from pandas import read_csv
+from subprocess import call
 # from datetime import datetime, timedelta
 
 from mne import Annotations, events_from_annotations
@@ -41,11 +41,13 @@ def _find_events(df, pd, sfreq, aud=None):
         print('#candidates found %i' % len(pd_candidates))
         thresh = input('New threshold?\t')
     diffs = pd_candidates[1:] - pd_candidates[:-1]
+    fixs = np.array(df['fix_onset_time'])
+    trial_lens = fixs[1:] - fixs[:-1]
     # m, b, r, p, se = linregress(diffs, np.array(df['trial_length'] * sfreq))
-    for i, trial_length in df['trial_length'].items():
-        j = np.argmin(abs(diffs - trial_length * sfreq))
+    for i, trial_len in enumerate(trial_lens):
+        j = np.argmin(abs(diffs - trial_len * sfreq))
         print('Trial %s: closest diff %s' % (i, j))
-    for block in np.unique(df['block']):
+    '''for block in np.unique(df['block']):
         this_df = df[df['block'] == block]
         min_error = np.inf
         best_i = None
@@ -56,11 +58,16 @@ def _find_events(df, pd, sfreq, aud=None):
             if this_error < min_error:
                 best_i = i
                 min_error = this_error
-        print('Block %i best offset: %i' % (block, best_i))
+        print('Block %i best offset: %i' % (block, best_i))'''
     skip_to_event = input('Skip to event?\t')
     events = dict()
     trial = 0
     pd_index = 0
+    print('Use pd+/-x to shift pd or t+/-x to shift time' +
+          'press enter to include event as next up' +
+          'or press e to exclude an event that should not' +
+          'be counted or input a number to have the ' +
+          'current pd event counted as that behavioral event.')
     while trial < len(df):
         c = pd_candidates[pd_index]
         if skip_to_event and pd_index < int(skip_to_event):
@@ -73,12 +80,14 @@ def _find_events(df, pd, sfreq, aud=None):
         if trial < len(df):
             min_trial = max([0, trial - 2])
             max_trial = min([len(df), trial + 5])
-            print(df['trial_length'].loc[min_trial:max([trial - 1, 0])])
+            print(np.arange(min_trial, max([trial - 1, 0])))
+            print(trial_lens[min_trial:max([trial - 1, 0])])
             print()
             print('%i    %f    time to next %s, event %s' %
-                  (trial, df['trial_length'].loc[trial], to_next, pd_index))
+                  (trial, trial_lens[trial], to_next, pd_index))
             print()
-            print(df['trial_length'].loc[min([trial + 1, len(df)]): max_trial])
+            print(np.arange(min([trial + 1, len(trial_lens)]), max_trial))
+            print(trial_lens[min([trial + 1, len(trial_lens)]): max_trial])
         if aud is None:
             fig, (ax0, ax1) = plt.subplots(2, 1)
         else:
@@ -99,6 +108,8 @@ def _find_events(df, pd, sfreq, aud=None):
                 trial += int(trial_input.replace('t+', ''))
             elif 't-' in trial_input:
                 trial -= int(trial_input.replace('t-', ''))
+            elif 'e+' in trial_input:
+                pd_index += int(trial_input.replace('e+', ''))
             elif trial_input:
                 trial = int(trial_input)
             events[trial] = c
@@ -109,8 +120,23 @@ def _find_events(df, pd, sfreq, aud=None):
 
 
 def edf2bids(bids_dir, sub, task, eegf, behf):
+    """Convert iEEG data collected at OHSU to BIDS format
+    Parameters
+    ----------
+    bids_dir : str
+        The subject directory in the bids directory where the data
+        should be saved.
+    sub : str
+        The name of the subject.
+    task : str
+        The name of the task.
+    eegf : str
+        The filepath where the file containing the eeg data lives.
+    behf : str
+        The filepath where the behavioral data mat file lives.
+    """
     bids_basename = 'sub-%s_task-%s' % (sub, task)
-    if not op.isfile(op.join(bids_dir, 'beh')):
+    if not op.isdir(op.join(bids_dir, 'beh')):
         os.makedirs(op.join(bids_dir, 'beh'))
     if op.splitext(eegf)[-1] == '.edf':
         raw = read_raw_edf(eegf, preload=True)
@@ -125,9 +151,13 @@ def edf2bids(bids_dir, sub, task, eegf, behf):
     a0 = input('a0 ch?\t')
     a1 = input('a1 ch?\t')
     sfreq = raw.info['sfreq']
-    mat = loadmat(behf)
-    df = DataFrame({key: value[0] for key, value in mat.items()
-                    if '__' not in key})
+    call(['$MATLAB_ROOT/bin/matlab -nodisplay -nosplash -nodesktop -r' +
+          '"slow_fast_mat2csv(%s); quit;"' % behf],
+         shell=True, env=os.environ)
+    df = read_csv(behf.replace('.mat', '.tsv'), sep='\t')
+    # mat = loadmat(behf)
+    # df = DataFrame({key: value[0] for key, value in mat.items()
+    #                if '__' not in key})
     # s, mu_s = raw.info['meas_date']
     # t0 = timedelta(0, s, mu_s).seconds
     if pd1:

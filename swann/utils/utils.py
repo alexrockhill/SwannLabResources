@@ -12,17 +12,43 @@ def get_config():
     return config
 
 
-def get_layout():
-
-    return layout
-
-
-def make_derivatives_dir(subject):
+def get_participants():
     config = get_config()
-    if not op.isdir(op.join(config['bids_dir'], 'derivatives',
-                    'sub-%s' % subject)):
-        os.makedirs(op.join(config['bids_dir'], 'derivatives',
-                            'sub-%s' % subject))
+    return read_csv(op.join(config['bids_dir'], 'participants.tsv'), sep='\t')
+
+
+def get_layout():
+    config = get_config()
+    return BIDSLayout(config['bids_dir'])
+
+
+def derivative_fname(bf, suffix, extention):
+    config = get_config()
+    out_dir = op.join(config['bids_dir'], 'derivatives',
+                      'sub-%s' % bf.entities['subject'])
+    if 'session' in bf.entities:
+        out_dir = op.join(out_dir, 'ses-%s' % bf.entities['session'])
+    if not op.isdir(out_dir):
+        os.makedirs(out_dir)
+    outf = op.join(out_dir, 'sub-%s' % bf.entities['subject'])
+    if 'session' in bf.entities:
+        outf += '_ses-%s' % bf.entities['session']
+    if 'task' in bf.entities:
+        outf += '_task-%s' % bf.entities['task']
+    if 'run' in bf.entities:
+        outf += '_run-%s' % bf.entities['run']
+    return outf + '_%s.%s' % (suffix, extention)
+
+
+def get_overwrite(fname, name, verbose=True):
+    is_file = '.' in fname
+    if (is_file and op.isfile(fname)) or (not is_file and op.isdir(fname)):
+        overwrite = \
+            input('%s already exists, overwrite? (Y/N)' % name).upper() != 'Y'
+        if overwrite:
+            print('Overwriting %s' % fname)
+        return overwrite
+    return True
 
 
 def get_dfs(behs):
@@ -40,6 +66,7 @@ def exclude_subjects(bids_list):
     bids_list = [bids_item for bids_item in bids_list if
                  bids_item.entities['subject'] not in
                  config['exclude_subjects']]
+    return bids_list
 
 
 def get_events(df, events, event, condition, value):

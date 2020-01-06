@@ -8,8 +8,13 @@ function struct2tsv_simple(f, my_struct)
     
     for i=1:numel(fn)
         if isstruct(my_struct.(fn{i}))
-           tsv = strcat(tsv, 'N/A\t');
-           struct2tsv(strcat(f, fn{i}), my_struct.(fn{i}));
+            tsv = strcat(tsv, 'n/a\t');
+            try
+                struct2tsv(strcat(f, fn{i}), my_struct.(fn{i}));
+            catch
+                disp('Unable to convert:');
+                disp(fn{i});
+            end
         else
             k = numel(my_struct.(fn{i}));
             if k > 1

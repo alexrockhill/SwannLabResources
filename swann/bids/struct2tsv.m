@@ -8,7 +8,12 @@ function struct2tsv(f, my_struct)
     
     for j = 1: length(my_struct)
         for i=1:numel(fn)
-            tsv = strcat(tsv, char(num2str(my_struct(j).(fn{i}))), '\t');
+            if isempty(my_struct(j).(fn{i}))
+                tsv = strcat(tsv, 'n/a\t');
+            else
+                tsv = strcat(tsv, char(num2str(my_struct(j).(fn{i}))), ...
+                             '\t');
+            end
         end
         tsv = strcat(tsv(1: strlength(tsv) - 2), '\n');
     end
