@@ -1,5 +1,51 @@
-def beta_bursting():
-    pass
+import numpy as np
+import os.path as op
+
+from pandas import DataFrame
+
+from swann.utils import (get_config, derivative_fname, read_raw,
+                         get_events)
+from swann.preprocessing import (get_bads, set_bads, get_ica,
+                                 preproc_slowfast, slowfast_group,
+                                 get_aux_epochs, set_ica_components)
+
+from mne.time_frequency.tfr import cwt
+from mne.time_frequency import morlet
+
+
+def beta_bursting(rawf, event, lfreq=15, hfreq=29, dfreq=1, n_cycles=7,
+                  overwrite=False):
+    ''' Find beta bursts (15-29 Hz > 6 * median of all signal).
+    Parameters
+    ----------
+    rawf : BIDSDataFile
+        The ephys data file from the pybids layout object.
+    event : str
+        The name of the event in params.json event_id to use.
+    lfreq : float
+        The lowest frequency to use.
+    hfreq : float
+        The greatest frequency to use.
+    dfreq : int
+        The step size between lfreq and hfreq.
+    n_cycles : int, np.array
+        The number of cycles to use in the Morlet transform
+    '''
+    beta_burstingf = derivative_fname(rawf, '%s_beta_bursting' % event, 'tsv')
+    if op.isfile(beta_burstingf) and not overwrite:
+        print('Beta bursts already calculated for %s, ' % rawf.path +
+              'use `overwrite=True` to recompute')
+        return
+    beta_bursts = dict(burst_start=[], burst_duration=[])
+    frequencies = np.arange(lfreq, hfreq + dfreq, dfreq)
+    raw = read_raw(rawf.path)
+    raw.info['bads'] += [ch for ch in get_bads(rawf) if
+                         ch not in raw.info['bads']]
+    events = get_events(raw, event)
+    # raw = apply_ica(rawf)
+
+
+    DataFrame(beta_bursts).to_csv(beta_bursts, index=False, sep='\t')
 
 
 '''
@@ -15,21 +61,16 @@ mediancutoff = 6;
 GO = nan(length(chanlocs),length(fname)); SS = GO; FS = GO; BL = GO;
 % go through subject
 for is = 1:length(fname)
-    
     % clear output
     clear trialevs blevs
-    
     % load
     EEG = pop_loadset(fullfile(csdfolder,[fname{is}(1:end-4) '-csd.set']));
-    
     % get SSRT
     behav = Basicstop_analyze(EEG.behavior);
     SSRT = behav.RT.SSRTi; % integration ssrt
     RT = behav.RT.corgo;
-    
     % look up chans
     [in,b,c] = intersect({EEG.chanlocs.labels},{chanlocs.labels},'stable');
-    
     % create wavelet
     time = -1:1/EEG.srate:1;
     % pre assign
@@ -68,7 +109,6 @@ for is = 1:length(fname)
         eEEG = pop_epoch(tEEG,{'S200' 'S  1' 'S  2'},window);
         epochs = eEEG.data;
         eventsample = abs(window(1)*EEG.srate); % onset of event within epoch
-        
         % get trial info
         accuracy = zeros(eEEG.trials,1); for ie = 1:eEEG.trials; accuracy(ie) = eEEG.epoch(ie).eventacc{1}; end
         ssd = zeros(eEEG.trials,1); for ie = 1:eEEG.trials; ssd(ie) = eEEG.epoch(ie).eventbehav{1}(4+eEEG.epoch(ie).eventbehav{1}(3)); end
@@ -86,7 +126,6 @@ for is = 1:length(fname)
         % go through trials
         if ic == 1; eventnums = zeros(EEG.nbchan,size(eEEG.data,1)); bl_eventnums = eventnums; end % preassign
         for it = 1:size(epochs,3)
-            
             % POST-event
             % get trial TF data (from event to SSRT)
             tdata = squeeze(epochs(:,eventsample+1:end,it));
@@ -107,7 +146,6 @@ for is = 1:length(fname)
                 eval(['trialevs.' EEG.chanlocs(ic).labels '.t' num2str(it) ' = [' num2str(peakpower(:,4)') '];']);
             else eval(['trialevs.' EEG.chanlocs(ic).labels '.t' num2str(it) ' = [];']);
             end
-            
             % baseline
             % get trial TF data (from -SSRT to event)
             tdata = squeeze(epochs(:,1:eventsample-1,it));
@@ -128,13 +166,11 @@ for is = 1:length(fname)
                 eval(['blevs.' EEG.chanlocs(ic).labels '.t' num2str(it) ' = [' num2str(peakpower(:,4)') '];']);
             else eval(['blevs.' EEG.chanlocs(ic).labels '.t' num2str(it) ' = [];']);
             end
-            
         end
         % store fcz data (from channel identified below)
         if strcmpi(EEG.chanlocs(ic).labels,'FCz'); FCZ = eEEG; end
         if strcmpi(EEG.chanlocs(ic).labels,'C3'); C3 = eEEG; end
         if strcmpi(EEG.chanlocs(ic).labels,'C4'); C4 = eEEG; end
-        
     end
     % trials
     GO(c,is) = mean(eventnums(b,accuracy==1),2);
@@ -143,10 +179,7 @@ for is = 1:length(fname)
     BL(c,is) = mean(bl_eventnums(b,accuracy==1),2); % pre-stim baseline
     % save trial and baseline evs
     save(fullfile(outfolder,['Subject' num2str(is) '-csd.mat']),'trialevs','blevs','SSRT','accuracy','ssd','side','tnum','RT');
-    
     % save individual events at FCZ, C3, C4
     save(fullfile(itfolder,['Subject' num2str(is) '-csd.mat']),'FCZ','C3','C4','accuracy','side');
-    
-    
 end
 '''

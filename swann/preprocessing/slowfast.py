@@ -1,14 +1,15 @@
 import os.path as op
 import numpy as np
+import json
 from pandas import read_csv, concat, DataFrame
 from scipy.stats import ttest_ind
 
-from swann.utils import get_config, get_participants, derivative_fname
+from swann.utils import get_config, derivative_fname, get_sidecar
 
 
 def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
                      overwrite=False, return_saved=False, verbose=True):
-    """Preprocess slowfast data so that it's counter-balanced
+    """Preprocess slowfast data so that it's counter-balanced.
     Parameters
     ----------
     behf : BIDSDataFile
@@ -25,10 +26,6 @@ def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
         Whether to display text output.
     """
     config = get_config()
-    participants = get_participants()
-    left_right = \
-        {config['left']: participants[config['left_key_col']].loc[0],
-         config['right']: participants[config['right_key_col']].loc[0]}
     np.random.seed(config['seed'])
     slow_fast = config['task_params']
     subject = behf.entities['subject']
@@ -49,6 +46,11 @@ def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
               (', session %s' % behf.entities['session']
                if 'session' in behf.entities else ''))
     df = read_csv(behf.path, sep='\t')
+    with open(get_sidecar(behf.path, 'json'), 'r') as f:
+        df_sidecar = json.load(f)
+    left_right = \
+        {config['left']: df_sidecar[config['left_key_col']],
+         config['right']: df_sidecar[config['right_key_col']]}
     fast = df.loc[[i for i, sf in
                    enumerate(list(df[slow_fast['name_col']]))
                    if slow_fast[str(sf)] == 'fast']]
@@ -128,6 +130,20 @@ def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
     return slow2, fast2, blocks, p, accuracy
 
 
+def slowfast2epochs_indices(behf):
+    config = get_config()
+    df = read_csv(behf.path, sep='\t')
+    slow, fast, blocks, p, accuracy = \
+        preproc_slowfast(behf, return_saved=True)
+    slow_trials = list(slow[config['trial_col']])
+    fast_trials = list(fast[config['trial_col']])
+    slow_indices = [i for i, trial in enumerate(df[config['trial_col']]) if
+                    trial in slow_trials]
+    fast_indices = [i for i, trial in enumerate(df[config['trial_col']]) if
+                    trial in fast_trials]
+    return slow_indices, fast_indices
+
+
 def slowfast_group(behfs, overwrite=False):
     config = get_config()
     slows = list()
@@ -142,8 +158,8 @@ def slowfast_group(behfs, overwrite=False):
         for block in blocks:
             blocks_group.append(block)
         accuracies.append(accuracy)
-    slow = concat(slows, sort=False)
-    fast = concat(fasts, sort=False)
+    slow = concat(slows, axis=0, sort=False)
+    fast = concat(fasts, axis=0, sort=False)
     t, p = ttest_ind(
         slow[config['response_col']], fast[config['response_col']])
     return slow, fast, blocks_group, p, np.mean(accuracies)
@@ -154,9 +170,10 @@ def slowfast_group_stats(behfs, name, overwrite=False):
     statsf = op.join(config['bids_dir'], 'derivatives',
                      'slowfast_group_stats_%s_slowfast.tsv' % name)
     if op.isfile(statsf) and not overwrite:
+        print('Skipping groups stats, already exists and overwrite is False')
         return
     stats = DataFrame(columns=['name', 'slow_mean', 'slow_std', 'fast_mean',
-                               'fast_std', 'accuracy'])
+                               'fast_std', 'accuracy', 'p'])
     for i, behf in enumerate(behfs):
         this_name = op.splitext(op.basename(behf.path))[0].replace('_beh', '')
         slow, fast, blocks, p, accuracy = \
@@ -165,12 +182,75 @@ def slowfast_group_stats(behfs, name, overwrite=False):
                         np.std(slow[config['response_col']]),
                         np.mean(fast[config['response_col']]),
                         np.std(fast[config['response_col']]),
-                        accuracy]
+                        accuracy, p]
     slow, fast, blocks, p, accuracy = slowfast_group(behfs)
     stats.loc[len(stats)] = ['group %s' % name,
                              np.mean(slow[config['response_col']]),
                              np.std(slow[config['response_col']]),
                              np.mean(fast[config['response_col']]),
                              np.std(fast[config['response_col']]),
-                             accuracy]
+                             accuracy, p]
+    stats.to_csv(statsf, sep='\t', index=False)
+
+
+def comparison_stats(behfs, group_by, group0, group1, condition,
+                     overwrite=False):
+    config = get_config()
+    statsf = \
+        op.join(config['bids_dir'], 'derivatives',
+                'comparison_stats_%s-%s_vs_%s_' % (group_by, group0, group1) +
+                '%s_slowfast.tsv' % condition)
+    if op.isfile(statsf) and not overwrite:
+        print('Skipping comparison stats, already exists ' +
+              'and overwrite is False')
+        return
+    behfs0 = list()
+    behfs1 = list()
+    for behf in behfs:
+        if '%s-%s' % (group_by, group0) in behf.path:
+            behfs0.append(behf)
+        elif '%s-%s' % (group_by, group1) in behf.path:
+            behfs1.append(behf)
+        else:
+            print('Group %s not found for behavior file %s' %
+                  (group_by, behf.path))
+    stats = DataFrame(columns=['name',
+                               '%s_%s_mean' % (condition, group0),
+                               '%s_%s_std' % (condition, group0),
+                               '%s_%s_mean' % (condition, group1),
+                               '%s_%s_std' % (condition, group1),
+                               '%s_p' % condition,
+                               '%s_%s_slow_mean' % (condition, group0),
+                               '%s_%s_slow_std' % (condition, group0),
+                               '%s_%s_slow_mean' % (condition, group1),
+                               '%s_%s_slow_std' % (condition, group1),
+                               '%s_slow_p' % condition,
+                               '%s_%s_fast_mean' % (condition, group0),
+                               '%s_%s_fast_std' % (condition, group0),
+                               '%s_%s_fast_mean' % (condition, group1),
+                               '%s_%s_fast_std' % (condition, group1),
+                               '%s_fast_p' % condition])
+    slow0, fast0, blocks0, p0, accuracy0 = slowfast_group(behfs0)
+    sf0 = slow0.append(fast0)
+    slow1, fast1, blocks1, p1, accuracy1 = slowfast_group(behfs1)
+    sf1 = slow1.append(fast1)
+    t_all, p_all = ttest_ind(sf0[condition], sf1[condition])
+    t_slow, p_slow = ttest_ind(slow0[condition], slow1[condition])
+    t_fast, p_fast = ttest_ind(fast0[condition], fast1[condition])
+    stats.loc[0] = ['Comparison %s: %s vs %s' % (group_by, group0, group1),
+                    np.mean(sf0[condition]),
+                    np.std(sf0[condition]),
+                    np.mean(sf1[condition]),
+                    np.std(sf1[condition]),
+                    p_all,
+                    np.mean(slow0[condition]),
+                    np.std(slow0[condition]),
+                    np.mean(slow1[condition]),
+                    np.std(slow1[condition]),
+                    p_slow,
+                    np.mean(fast0[condition]),
+                    np.std(fast0[condition]),
+                    np.mean(fast1[condition]),
+                    np.std(fast1[condition]),
+                    p_fast]
     stats.to_csv(statsf, sep='\t', index=False)

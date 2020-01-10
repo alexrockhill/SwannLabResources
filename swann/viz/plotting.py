@@ -2,11 +2,11 @@ import numpy as np
 import os.path as op
 
 import matplotlib.pyplot as plt
-import seaborn as sns
 
-from swann.utils import get_config, derivative_fname
-from swann.preprocessing import (get_bads, set_bads,
-                                 preproc_slowfast, slowfast_group)
+from swann.utils import get_config, derivative_fname, read_raw
+from swann.preprocessing import (get_bads, set_bads, get_ica,
+                                 preproc_slowfast, slowfast_group,
+                                 get_aux_epochs, set_ica_components)
 
 from pactools import Comodulogram, raw_to_mask
 
@@ -50,22 +50,57 @@ def plot_pac(subject, raw, ch_names=None, events=None, tmin=None, tmax=None):
             fig.savefig(figf, dpi=300)
 
 
-def plot_find_bads(rawf, raw):
+def plot_find_bads(rawf, overwrite=False):
     config = get_config()
+    raw = read_raw(rawf.path)
     badsf = derivative_fname(rawf, 'bad_channels', 'tsv')
-    if op.isfile(badsf):
-        raw.info['bads'] = get_bads(rawf)
+    if op.isfile(badsf) and not overwrite:
+        print('Bad channels already marked, skipping plot raw for ' +
+              'determining bad channels, use `overwrite=True` to plot')
+        return
     else:
-        psdf = derivative_fname(rawf, 'psd_w_bads', 'eps')
+        print('Plotting PSD spectrogram and raw channels for bad channel ' +
+              'selection, %s' % rawf.path)
+        raw.info['bads'] += [ch for ch in get_bads(rawf) if
+                             ch not in raw.info['bads']]
+        psdf = derivative_fname(rawf, 'psd_w_bads', config['fig'])
         fig = raw.plot_psd(picks=[i for i, ch in enumerate(raw.ch_names)
-                                  if ch != 'Event'])
+                                  if ch not in ['Event', 'Status']],
+                           show=False)
         fig.savefig(psdf, dpi=300)
-        raw.plot()  # pick bad channels
-        set_bads(rawf, raw)
+        raw.plot(block=True)  # pick bad channels
+        set_bads(rawf, raw.info['bads'])
         fig = raw.plot_psd(picks=[i for i, ch in enumerate(raw.ch_names)
-                                  if ch != 'Event' and
+                                  if ch not in ['Event', 'Status'] and
                                   ch not in raw.info['bads']])
         fig.savefig(derivative_fname(rawf, 'psd', config['fig']))
+
+
+def plot_ica(rawf, method='fastica', n_components=None,
+             overwrite=False):
+    raw = read_raw(rawf.path)
+    raw.info['bads'] = get_bads(rawf)
+    ica = get_ica(rawf)
+    ica.plot_sources(raw, block=True, show=True,
+                     title=rawf.entities['subject'])
+    '''
+    done = False
+    while not done:
+        # ica.plot_components(show=False) just click on the plot
+        # ica.plot_properties(raw, show=False) too many plots
+        ica.plot_sources(raw, block=True, show=True,
+                         title=rawf.entities['subject'])
+        aux_epochs = get_aux_epochs(ica, raw)
+        for ch, epo in aux_epochs.items():
+            fig = ica.plot_overlay(epo.average(), show=False)
+            fig.suptitle('%s %s' % (rawf.entities['subject'], ch))
+            fig = ica.plot_sources(epo.average(), exclude=ica.exclude,
+                                   show=False)
+            fig.suptitle('%s %s' % (rawf.entities['subject'], ch))
+        done = input('Have all the artifact components been removed ' +
+                     '(Y/N)?').upper() == 'Y'
+    '''
+    set_ica_components(rawf, ica.exclude)
 
 
 def plot_slow_fast_group(behfs, name, overwrite=False):
@@ -94,10 +129,10 @@ def _plot_slow_fast(slow, fast, blocks, p, accuracy, plotf,
     slow_fast = config['task_params']
     fig, (ax0, ax1) = plt.subplots(2, 1)
     fig.set_size_inches(6, 12)
-    sns.distplot(slow[config['response_col']], ax=ax0,
-                 color='blue', label='Slow')
-    sns.distplot(fast[config['response_col']], ax=ax0,
-                 color='red', label='Fast')
+    ax0.hist(slow[config['response_col']],
+             color='blue', label='Slow', alpha=0.5)
+    ax0.hist(fast[config['response_col']],
+             color='red', label='Fast', alpha=0.5)
     ax0.legend()
     ax0.set_xlabel('Response Time')
     ax0.set_ylabel('Count')
