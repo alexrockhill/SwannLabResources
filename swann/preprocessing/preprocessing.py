@@ -53,7 +53,8 @@ def get_aux_epochs(ica, raw):
 
 def apply_ica(rawf):
     raw = read_raw(rawf.path)
-    raw.info['bads'] = get_bads(rawf)
+    raw.info['bads'] += [ch for ch in get_bads(rawf) if
+                         ch not in raw.info['bads']]
     ica = get_ica(rawf)
     components = get_ica_components(rawf)
     raw.load_data()
@@ -92,6 +93,12 @@ def mark_autoreject(rawf, n_interpolates=[1, 2, 3, 5, 7, 10, 20],
                     consensus_percs=np.linspace(0, 1.0, 11),
                     return_saved=False, overwrite=False):
     config = get_config()
+    if all([op.isfile(derivative_fname(rawf, 'rejected_epochs_%s' % event,
+                                       'tsv')) for event in config['event_id']]
+           ) and not overwrite:
+        print('Autoreject already computed for all the epochs for ' +
+              '%s, use `overwrite=True` to rerun' % rawf.entities['subject'])
+        return
     raw = apply_ica(rawf)
     exclude_indices = dict()
     for event in config['event_id']:

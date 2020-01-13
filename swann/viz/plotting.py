@@ -3,12 +3,17 @@ import os.path as op
 
 import matplotlib.pyplot as plt
 
-from swann.utils import get_config, derivative_fname, read_raw
+from swann.utils import (get_config, derivative_fname, read_raw,
+                         get_events, get_no_responses)
 from swann.preprocessing import (get_bads, set_bads, get_ica,
                                  preproc_slowfast, slowfast_group,
-                                 get_aux_epochs, set_ica_components)
+                                 set_ica_components, apply_ica,
+                                 mark_autoreject, slowfast2epochs_indices)
+from swann.analyses import decompose_tfr
 
 from pactools import Comodulogram, raw_to_mask
+
+from mne.viz import iter_topography
 
 
 # need to remove the computations?
@@ -52,13 +57,13 @@ def plot_pac(subject, raw, ch_names=None, events=None, tmin=None, tmax=None):
 
 def plot_find_bads(rawf, overwrite=False):
     config = get_config()
-    raw = read_raw(rawf.path)
     badsf = derivative_fname(rawf, 'bad_channels', 'tsv')
     if op.isfile(badsf) and not overwrite:
         print('Bad channels already marked, skipping plot raw for ' +
               'determining bad channels, use `overwrite=True` to plot')
         return
     else:
+        raw = read_raw(rawf.path)
         print('Plotting PSD spectrogram and raw channels for bad channel ' +
               'selection, %s' % rawf.path)
         raw.info['bads'] += [ch for ch in get_bads(rawf) if
@@ -78,6 +83,11 @@ def plot_find_bads(rawf, overwrite=False):
 
 def plot_ica(rawf, method='fastica', n_components=None,
              overwrite=False):
+    if (op.isfile(derivative_fname(rawf, 'ica_components', 'tsv')) and
+            not overwrite):
+        print('ICA component choices already saved, use `overwrite=True` ' +
+              'to re-plot.')
+        return
     raw = read_raw(rawf.path)
     raw.info['bads'] = get_bads(rawf)
     ica = get_ica(rawf)
@@ -127,11 +137,16 @@ def plot_slow_fast(behf, overwrite=False):
 def _plot_slow_fast(slow, fast, blocks, p, accuracy, plotf,
                     config, name, overwrite):
     slow_fast = config['task_params']
+    bins = np.linspace(min([slow[config['response_col']].min(),
+                            fast[config['response_col']].min()]),
+                       max([slow[config['response_col']].max(),
+                            fast[config['response_col']].max()]),
+                       10)
     fig, (ax0, ax1) = plt.subplots(2, 1)
     fig.set_size_inches(6, 12)
-    ax0.hist(slow[config['response_col']],
+    ax0.hist(slow[config['response_col']], bins=bins,
              color='blue', label='Slow', alpha=0.5)
-    ax0.hist(fast[config['response_col']],
+    ax0.hist(fast[config['response_col']], bins=bins,
              color='red', label='Fast', alpha=0.5)
     ax0.legend()
     ax0.set_xlabel('Response Time')
@@ -157,3 +172,64 @@ def _plot_slow_fast(slow, fast, blocks, p, accuracy, plotf,
     if not op.isfile(plotf) or overwrite:
         fig.savefig(plotf, dpi=300)
     return fig
+
+
+def plot_beta_bursting(rawf, behf, verbose=True, overwrite=False):
+    config = get_config()
+    if all([op.isfile(
+        derivative_fname(rawf, '%s_beta_bursts_%s' % (name, event),
+                         config['fig']))
+            for name in ['All', 'Slow', 'Fast']
+            for event in config['event_id']]) and not overwrite:
+        print('Beta bursting plot already exist, use `overwrite=True` ' +
+              'to replot')
+        return
+    raw = apply_ica(rawf)
+    tmin, tmax, sfreq = config['tmin'], config['tmax'], raw.info['sfreq']
+    bin_indices = range(int(sfreq * tmin), int(sfreq * tmax))
+    times = np.linspace(tmin, tmax, len(bin_indices))
+    epo_reject_indices = {event: list() for event in config['event_id']}
+    # mark_autoreject(rawf, return_saved=True)
+    all_indices, slow_indices, fast_indices = slowfast2epochs_indices(behf)
+    no_responses = get_no_responses(behf)
+    tfr = decompose_tfr(rawf, return_saved=True)
+    beta_burst_lim = \
+        np.quantile([len(beta_bursts[beta_bursts['channel'] == ch])
+                     for ch in raw.ch_names], 0.9)
+    for name, indices in {'All': all_indices, 'Slow': slow_indices,
+                          'Fast': fast_indices}.items():
+        if verbose:
+            print('Plotting beta bursting for %s trials' % name)
+        indices = [i for i in indices if i not in epo_reject_indices]
+        for event in config['event_id']:
+            if verbose:
+                print('Plotting beta bursting for the %s event' % event)
+            events = get_events(raw, event, exclude_events=epo_reject_indices,
+                                no_responses=(no_responses if
+                                              event == 'Response' else None))
+            plotf = derivative_fname(rawf, '%s_beta_bursts_%s' % (name, event),
+                                     config['fig'])
+            for ax, idx in iter_topography(raw.info, fig_facecolor='white',
+                                           axis_facecolor='white',
+                                           axis_spinecolor='white'):
+                if verbose:
+                    print('Plotting channel %s' % raw.ch_names[idx])
+                this_beta_bursts = \
+                    beta_bursts[beta_bursts['channel'] == raw.ch_names[idx]]
+                beta_burst_indices = set([i for start, stop in
+                                          zip(this_beta_bursts['burst_start'],
+                                              this_beta_bursts['burst_end'])
+                                          for i in range(start, stop)])
+                this_bins = np.zeros((len(bin_indices)))
+                for event_index in events[:, 0]:
+                    for j, offset in enumerate(bin_indices):
+                        if event_index - offset in beta_burst_indices:
+                            this_bins[j] += 1
+                ax.plot(times, this_bins)
+                ax.set_ylim([0, beta_burst_lim])
+            fig = plt.gcf()
+            fig.set_size_inches(10, 10)
+            fig.suptitle('%s Trials Beta Bursting for ' % name +
+                         'the %s Event from ' % event +
+                         '%s to %s Seconds' % (tmin, tmax))
+            fig.savefig(plotf)

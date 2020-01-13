@@ -137,11 +137,12 @@ def slowfast2epochs_indices(behf):
         preproc_slowfast(behf, return_saved=True)
     slow_trials = list(slow[config['trial_col']])
     fast_trials = list(fast[config['trial_col']])
+    all_indices = np.arange(len(df))
     slow_indices = [i for i, trial in enumerate(df[config['trial_col']]) if
                     trial in slow_trials]
     fast_indices = [i for i, trial in enumerate(df[config['trial_col']]) if
                     trial in fast_trials]
-    return slow_indices, fast_indices
+    return all_indices, slow_indices, fast_indices
 
 
 def slowfast_group(behfs, overwrite=False):

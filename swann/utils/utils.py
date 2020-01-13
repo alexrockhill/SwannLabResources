@@ -28,6 +28,25 @@ def get_sidecar(fname, sidecar_ext):
     return sidecarf
 
 
+def get_behf(bidsf):
+    config = get_config()
+    layout = get_layout()
+    behf = layout.get(task=config['task'],
+                      extension='tsv', suffix='beh',
+                      subject=bidsf.entities['subject'],
+                      session=(bidsf.entities['session'] if
+                               'session' in bidsf.entities else None),
+                      run=(bidsf.entities['run'] if
+                           'run' in bidsf.entities else None))
+    if len(behf) > 1:
+        raise ValueError('More than one matching behavior file ' +
+                         'found for %s' % bidsf.path)
+    elif len(behf) == 0:
+        raise ValueError('No matching behavior file ' +
+                         'found for %s' % bidsf.path)
+    return behf[0]
+
+
 def get_layout():
     config = get_config()
     return BIDSLayout(config['bids_dir'])
@@ -62,11 +81,11 @@ def get_overwrite(fname, name, verbose=True):
     return True
 
 
-def get_dfs(behs):
+def get_dfs(behfs):
     df_list = []
-    for beh in behs:
-        df = read_csv(beh.path, sep='\t')
-        df['Subject'] = beh.entities['subject']
+    for behf in behfs:
+        df = read_csv(behf.path, sep='\t')
+        df['Subject'] = behf.entities['subject']
         df_list.append(df)
     dfs = concat(df_list)
     return dfs
@@ -81,7 +100,7 @@ def exclude_subjects(bids_list):
 
 
 '''
-def get_events(df, events, event, condition, value):
+def get_epochs(raw, event, condition, value):
     """ Exclude trials, if event is response also exclude no response."""
     config = get_config()
     this_events = events[events[:, 2] == config['event_id'][event]['id']]
@@ -105,6 +124,17 @@ def get_events(df, events, event, condition, value):
     return this_events[[trial for j, trial in indices.items()
                         if j in condition_indices]]
 '''
+
+
+def get_no_responses(behf):
+    config = get_config()
+    df = read_csv(behf.path, sep='\t')
+    no_responses = list()
+    for trial in df.index:
+        val = df.loc[trial, config['response_col']]
+        if np.isnan(val) or val < 1e-6 or val == 99:
+            no_responses.append(trial)
+    return no_responses
 
 
 def read_raw(raw_path, preload=False):

@@ -1,25 +1,25 @@
 import numpy as np
 import os.path as op
 
-from pandas import DataFrame
+from pandas import DataFrame, read_csv
 
-from swann.utils import (get_config, derivative_fname, read_raw,
-                         get_events)
-from swann.preprocessing import (get_bads, set_bads, get_ica,
-                                 preproc_slowfast, slowfast_group,
-                                 get_aux_epochs, set_ica_components)
+from swann.utils import derivative_fname, read_raw
+from swann.preprocessing import get_bads, apply_ica
 
 from mne.time_frequency.tfr import cwt
 from mne.time_frequency import morlet
 
 
-def beta_bursting(rawf, event, lfreq=15, hfreq=29, dfreq=1, n_cycles=7,
+def decompose_tfr(rawf, name='beta', lfreq=15, hfreq=29, dfreq=1, n_cycles=7,
+                  use_fft=True, mode='same', return_saved=False,
                   overwrite=False):
-    ''' Find beta bursts (15-29 Hz > 6 * median of all signal).
+    ''' Compute a time frequency decomposition (default beta).
     Parameters
     ----------
     rawf : BIDSDataFile
         The ephys data file from the pybids layout object.
+    name : str
+        The name of the frequencies (e.g. beta)
     event : str
         The name of the event in params.json event_id to use.
     lfreq : float
@@ -30,23 +30,68 @@ def beta_bursting(rawf, event, lfreq=15, hfreq=29, dfreq=1, n_cycles=7,
         The step size between lfreq and hfreq.
     n_cycles : int, np.array
         The number of cycles to use in the Morlet transform
+    use_fft : bool
+        Use Fast Fourier Transform see `mne.time_frequency.tfr.cwt`.
+    mode : ‘same’ | ‘valid’ | ‘full’
+        Convention for convolution see see `mne.time_frequency.tfr.cwt`.
     '''
-    beta_burstingf = derivative_fname(rawf, '%s_beta_bursting' % event, 'tsv')
-    if op.isfile(beta_burstingf) and not overwrite:
-        print('Beta bursts already calculated for %s, ' % rawf.path +
-              'use `overwrite=True` to recompute')
-        return
-    beta_bursts = dict(burst_start=[], burst_duration=[])
-    frequencies = np.arange(lfreq, hfreq + dfreq, dfreq)
-    raw = read_raw(rawf.path)
-    raw.info['bads'] += [ch for ch in get_bads(rawf) if
-                         ch not in raw.info['bads']]
-    events = get_events(raw, event)
-    # raw = apply_ica(rawf)
+    tfrf = derivative_fname(rawf, '%s_tfr' % name, 'npz')
+    if not op.isfile(tfrf):
+        if return_saved:
+            raise ValueError('Time frequency has not been computed, ' +
+                             'cannot return saved')
+    else:
+        if not overwrite and not return_saved:
+            print('Time frequency already calculated for %s, ' % rawf.path +
+                  'use `overwrite=True` to recompute')
+        return np.load(tfrf)['tfr']
+    freqs = np.arange(lfreq, hfreq + dfreq, dfreq)
+    raw = apply_ica(rawf)
+    raw_data = raw.get_data()
+    tfr = np.zeros(raw_data.shape)
+    for freq in freqs:
+        print('Computing Morlet wavelet transform on frequency %s' % freq)
+        W = morlet(raw.info['sfreq'], [freq], n_cycles=n_cycles,
+                   zero_mean=False)
+        this_tfr = cwt(raw_data, W, use_fft=use_fft,
+                       mode=mode)
+        tfr += abs(this_tfr[:, 0])
+    tfr /= len(freqs)
+    np.savez_compressed(tfrf, tfr=tfr, lfreq=lfreq, hfreq=hfreq, dfreq=dfreq,
+                        n_cycles=n_cycles, use_fft=use_fft, mode=mode)
+    return tfr
 
 
-    DataFrame(beta_bursts).to_csv(beta_bursts, index=False, sep='\t')
-
+def find_bursts(signal, thresh=6):
+    ''' Threshold a signal to find bursts.
+    Parameters
+    ----------
+    signal : np.ndarray(ch, times)
+        The signal in the form channels x times.
+    thresh : float
+        The number of times greater than the median to count
+        as a burst.
+    '''
+    bursts = dict(channel=[], burst_start=[], burst_end=[])
+    threshs = [np.median(ch_tfr) * thresh for ch_tfr in tfr]
+    for i, ch in enumerate(raw.ch_names):
+        print('Finding bursts for channel %s' % ch)
+        burst = False
+        for t in range(raw_data.shape[1]):
+            if tfr[i, t] > threshs[i]:
+                if not burst:
+                    bursts['channel'].append(ch)
+                    bursts['burst_start'].append(t)
+                    burst = True
+            else:
+                if burst:
+                    bursts['burst_end'].append(t)
+                    burst = False
+        if burst:  # fencepost
+            bursts['burst_end'].append(raw_data.shape[1])
+    df = DataFrame(beta_bursts)
+    df.to_csv(beta_burstingf, index=False, sep='\t')
+    return df
 
 '''
 Adapted to be identical to the following code from
