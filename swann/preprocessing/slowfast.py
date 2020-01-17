@@ -29,15 +29,18 @@ def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
     np.random.seed(config['seed'])
     slow_fast = config['task_params']
     subject = behf.entities['subject']
-    if (all([op.isfile(derivative_fname(behf, name, 'tsv')) for name in
-             ['slow', 'fast', 'data']]) and not overwrite):
-        slow = read_csv(derivative_fname(behf, 'slow', 'tsv'), sep='\t')
-        fast = read_csv(derivative_fname(behf, 'fast', 'tsv'), sep='\t')
-        data = read_csv(derivative_fname(behf, 'data', 'tsv'), sep='\t')
+    slowf = derivative_fname(behf, 'data', 'slow', 'tsv')
+    fastf = derivative_fname(behf, 'data', 'fast', 'tsv')
+    dataf = derivative_fname(behf, 'data', 'data', 'tsv')
+    blockf = derivative_fname(behf, 'data', 'block_%i', 'tsv')
+    if (all([op.isfile(thisf) for thisf in [slowf, fastf, dataf]]) and
+            not overwrite):
+        slow = read_csv(slowf, sep='\t')
+        fast = read_csv(fastf, sep='\t')
+        data = read_csv(dataf, sep='\t')
         blocks = list()
         for i in range(data['n_blocks'].loc[0]):
-            blocks.append(read_csv(derivative_fname(behf, 'block_%i' % i,
-                                                    'tsv'), sep='\t'))
+            blocks.append(read_csv(blockf % i, sep='\t'))
         return slow, fast, blocks, data['p'].loc[0], data['accuracy'].loc[0]
     elif return_saved:
         raise ValueError('Behavior must first be computed')
@@ -119,12 +122,11 @@ def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
         this_block = this_block[this_block[config['response_col']] >
                                 min_resp_t]
         blocks.append(this_block)
-    slow2.to_csv(derivative_fname(behf, 'slow', 'tsv'), sep='\t', index=False)
-    fast2.to_csv(derivative_fname(behf, 'fast', 'tsv'), sep='\t', index=False)
+    slow2.to_csv(slowf, sep='\t', index=False)
+    fast2.to_csv(fastf, sep='\t', index=False)
     for i, block in enumerate(blocks):
-        block.to_csv(derivative_fname(behf, 'block_%i' % i, 'tsv'),
-                     sep='\t', index=False)
-    with open(derivative_fname(behf, 'data', 'tsv'), 'w') as f:
+        block.to_csv(blockf % i, sep='\t', index=False)
+    with open(dataf, 'w') as f:
         f.write('n_blocks\tp\taccuracy\n%i\t%s\t%s' %
                 (len(blocks), p, accuracy))
     return slow2, fast2, blocks, p, accuracy

@@ -12,14 +12,14 @@ from mne import Epochs
 
 
 def get_bads(rawf):
-    badsf = derivative_fname(rawf, 'bad_channels', 'tsv')
+    badsf = derivative_fname(rawf, 'data', 'bad_channels', 'tsv')
     if op.isfile(badsf):
         return list(read_csv(badsf, sep='\t')['bads'])
     return []
 
 
 def set_bads(rawf, bads):
-    badsf = derivative_fname(rawf, 'bad_channels', 'tsv')
+    badsf = derivative_fname(rawf, 'data', 'bad_channels', 'tsv')
     with open(badsf, 'w') as f:
         f.write('bads\n')
         for ch in bads:
@@ -27,7 +27,8 @@ def set_bads(rawf, bads):
 
 
 def find_ica(rawf, method='fastica', n_components=None, overwrite=False):
-    if op.isfile(derivative_fname(rawf, 'ica', 'fif')) and not overwrite:
+    if (op.isfile(derivative_fname(rawf, 'data', 'ica', 'fif')) and
+            not overwrite):
         print('ICA already computed, use `overwrite=True` to recompute')
         return
     config = get_config()
@@ -63,14 +64,14 @@ def apply_ica(rawf):
 
 
 def get_ica(rawf):
-    icaf = derivative_fname(rawf, 'ica', 'fif')
+    icaf = derivative_fname(rawf, 'data', 'ica', 'fif')
     if not op.isfile(icaf):
         raise ValueError('ICA not computed, this must be done first')
     return read_ica(icaf)
 
 
 def get_ica_components(rawf):
-    componentsf = derivative_fname(rawf, 'ica_components', 'tsv')
+    componentsf = derivative_fname(rawf, 'data', 'ica_components', 'tsv')
     if op.isfile(componentsf):
         return list(read_csv(componentsf, sep='\t')['components'])
     else:
@@ -78,58 +79,49 @@ def get_ica_components(rawf):
 
 
 def set_ica(rawf, ica):
-    ica.save(derivative_fname(rawf, 'ica', 'fif'))
+    ica.save(derivative_fname(rawf, 'data', 'ica', 'fif'))
 
 
 def set_ica_components(rawf, components):
-    componentsf = derivative_fname(rawf, 'ica_components', 'tsv')
+    componentsf = derivative_fname(rawf, 'data', 'ica_components', 'tsv')
     with open(componentsf, 'w') as f:
         f.write('components\n')
         for component in components:
             f.write('%i\n' % component)
 
 
-def mark_autoreject(rawf, n_interpolates=[1, 2, 3, 5, 7, 10, 20],
+def mark_autoreject(rawf, event, raw=None,
+                    n_interpolates=[1, 2, 3, 5, 7, 10, 20],
                     consensus_percs=np.linspace(0, 1.0, 11),
-                    return_saved=False, overwrite=False):
+                    return_saved=False, verbose=True, overwrite=False):
     config = get_config()
-    if all([op.isfile(derivative_fname(rawf, 'rejected_epochs_%s' % event,
-                                       'tsv')) for event in config['event_id']]
-           ) and not overwrite:
-        print('Autoreject already computed for all the epochs for ' +
-              '%s, use `overwrite=True` to rerun' % rawf.entities['subject'])
-        return
-    raw = apply_ica(rawf)
-    exclude_indices = dict()
-    for event in config['event_id']:
-        rejected_epochsf = derivative_fname(rawf, 'rejected_epochs_%s' % event,
-                                            'tsv')
-        if not op.isfile(rejected_epochsf):
-            if return_saved:
-                raise ValueError('Saved epoch rejection cannot be returned, ' +
-                                 'it hasn\'t been computed yet')
-        elif not overwrite:
-            exclude_indices[event] = \
-                list(read_csv(rejected_epochsf,
-                              sep='\t')['rejected_epochs'])
-            if not return_saved:
-                print('Autoreject already run for %s, ' % event +
-                      'set `overwrite=True` to recompute')
-            continue
+    autorejectf = derivative_fname(rawf, 'data', 'rejected_epochs_%s' % event,
+                                   'tsv')
+    if not op.isfile(autorejectf):
+        if return_saved:
+            raise ValueError('Autoreject not yet run, cannot return saved')
+    elif not overwrite:
+        if not return_saved:
+            print('Autoreject already computed for %s for ' % event +
+                  '%s, use `overwrite=True` to rerun' % rawf.path)
+        return list(read_csv(autorejectf, sep='\t')['rejected_epochs'])
+    events = get_events(raw)
+    if verbose:
         print('Computing autoreject on %s' % event)
-        events = get_events(raw, event)
-        epochs = Epochs(raw, events, tmin=config['tmin'], tmax=config['tmax'])
-        ar = AutoReject(n_interpolates, consensus_percs,
-                        random_state=config['seed'],
-                        n_jobs=config['n_jobs'])
-        epochs.load_data()
-        epochs_ar, reject_log = ar.fit_transform(epochs, return_log=True)
-        with open(rejected_epochsf, 'w') as f:
-            f.write('rejected_epochs\n')
-            for i, rejected in enumerate(reject_log.bad_epochs):
-                if rejected:
-                    f.write('%s\n' % i)
-    return exclude_indices
+    epochs = Epochs(raw, events[event],
+                    tmin=config['tmin'], tmax=config['tmax'])
+    ar = AutoReject(n_interpolates, consensus_percs,
+                    random_state=config['seed'],
+                    n_jobs=config['n_jobs'])
+    epochs.load_data()
+    epochs_ar, reject_log = ar.fit_transform(epochs, return_log=True,
+                                             verbose=verbose)
+    with open(autorejectf, 'w') as f:
+        f.write('rejected_epochs\n')
+        for i, rejected in enumerate(reject_log.bad_epochs):
+            if rejected:
+                f.write('%s\n' % i)
+    return list(read_csv(autorejectf, sep='\t')['rejected_epochs'])
 
 
 '''

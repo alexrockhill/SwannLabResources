@@ -52,12 +52,13 @@ def get_layout():
     return BIDSLayout(config['bids_dir'])
 
 
-def derivative_fname(bf, suffix, extention):
+def derivative_fname(bf, dir_name, suffix, extention):
     config = get_config()
     out_dir = op.join(config['bids_dir'], 'derivatives',
                       'sub-%s' % bf.entities['subject'])
     if 'session' in bf.entities:
         out_dir = op.join(out_dir, 'ses-%s' % bf.entities['session'])
+    out_dir = op.join(out_dir, dir_name)
     if not op.isdir(out_dir):
         os.makedirs(out_dir)
     outf = op.join(out_dir, 'sub-%s' % bf.entities['subject'])
@@ -103,8 +104,8 @@ def exclude_subjects(bids_list):
 def get_epochs(raw, event, condition, value):
     """ Exclude trials, if event is response also exclude no response."""
     config = get_config()
-    this_events = events[events[:, 2] == config['event_id'][event]['id']]
-    event = "Stimulus/S  %i" % config['event_id'][event]['id']
+    this_events = events[events[:, 2] == config['events'][event]['id']]
+    event = "Stimulus/S  %i" % config['events'][event]['id']
     response = event == config['response_col']
     indices = dict()
     i = 0
@@ -126,13 +127,38 @@ def get_epochs(raw, event, condition, value):
 '''
 
 
+def check_overwrite_or_return(name, fname, return_saved, overwrite, verbose):
+    if op.isfile(fname) and overwrite:
+        if verbose:
+            print('Overwriting existing %s' % name)
+    elif not op.isfile(fname):
+        if return_saved:
+            raise ValueError('%s have not been ' % name.capitalize() +
+                             'calculated cannot return saved')
+    elif not overwrite:
+        if not return_saved:
+            print('%s have already been calculated, ' % name.capitalize() +
+                  'use `overwrite=True` to recompute')
+        return True
+    return False
+
+
+def my_events():
+    config = get_config()
+    events = dict()
+    events.update(config['stimuli'])
+    events.update(config['responses'])
+    events.update(config['feedback'])
+    return events
+
+
 def get_no_responses(behf):
     config = get_config()
     df = read_csv(behf.path, sep='\t')
     no_responses = list()
     for trial in df.index:
         val = df.loc[trial, config['response_col']]
-        if np.isnan(val) or val < 1e-6 or val == 99:
+        if np.isnan(val) or val < 0.05 or val == 99:  # RT < ~0.03 not recorded
             no_responses.append(trial)
     return no_responses
 
@@ -166,19 +192,70 @@ def read_raw(raw_path, preload=False):
     return raw
 
 
-def get_events(raw, event):
+def get_events(raw, exclude_events=None):
     config = get_config()
+    all_events = dict()
     events, _ = mne.events_from_annotations(raw)
     if events.size == 0:
         events = mne.find_events(raw)
-    this_event = config['event_id'][event]
-    if isinstance(this_event, list):
+    n_events = None
+    for event in (list(config['stimuli'].keys()) +
+                  list(config['feedback'].keys())):
+        this_events = _this_events(events, event)
+        if n_events is None:
+            n_events = len(this_events)
+        elif n_events != len(this_events):
+            raise ValueError('%i events found previously, ' % n_events +
+                             '%i events for %s' % (len(this_events), event))
+        this_events[:, 2] = np.arange(n_events)
+        all_events[event] = this_events
+    for event in config['responses']:
+        response_events = _this_events(events, event)
+        response_ts = set(response_events[:, 0])  # time stamps
+        response_indices = None
+        for stim_event in config['stimuli']:
+            this_response_indices = list()
+            for i, e in enumerate(all_events[stim_event][1:, 0]):
+                for event_ts in range(all_events[stim_event][i, 0], e):
+                    if event_ts in response_ts:
+                        this_response_indices.append(i)
+            for event_ts in range(all_events[stim_event][-1, 0],  # fencepost
+                                  max(events[:, 0]) + 1):
+                if event_ts in response_ts:
+                    this_response_indices.append(
+                        len(all_events[stim_event]) - 1)
+            if response_indices is None:
+                response_indices = this_response_indices
+            elif response_indices != this_response_indices:
+                raise ValueError('Responses were not consistent between ' +
+                                 'stimuli')
+        if len(response_indices) < len(response_events):
+            raise ValueError('Not all response events were between stimuli')
+        response_events[:, 2] = response_indices
+        all_events[event] = response_events
+    if exclude_events is not None:
+        for events in all_events:
+            this_exclude_events = [i for i, e in
+                                   enumerate(all_events[event][:, 2])
+                                   if e in exclude_events[event]]
+            all_events[event] = np.delete(all_events[event],
+                                          this_exclude_events, axis=0)
+    return all_events
+
+
+def _this_events(events, event):
+    event_id = my_events()[event]
+    if isinstance(event_id, list):
         indices = [i for i, e in enumerate(events[:, 2]) if
-                   e in this_event]
+                   e in event_id]
     else:
         indices = [i for i, e in enumerate(events[:, 2]) if
-                   e == this_event]
+                   e == event_id]
     return events[indices]
+
+
+def pick_data(raw):
+    return raw.pick_types(meg=True, eeg=True, seeg=True, ecog=True, csd=True)
 
 
 def default_montage(raw):
@@ -203,4 +280,23 @@ def read_dig_montage(dig_path):
         montage = mne.channels.read_dig_montage(bvct=corf)
     elif '.csv' in op.basename(corf):
         montage = mne.channels.read_dig_montage(csv=corf)
+'''
+'''
+    if no_responses is None:
+        raise ValueError('A `response_event` was defined in the config ' +
+                         'file thus a no responses list must be provided')
+    response_events = _this_events(events, config['response_event'])
+    if len(response_events) + len(no_responses) != n_events:
+        raise ValueError('%i events for other events ' % n_events +
+                         'compared to %i ' % len(response_events) +
+                         'response events + %i ' % len(no_responses) +
+                         'no response trials: these do not add up.')
+    response_indices = np.setdiff1d(np.arange(n_events), no_responses)
+    response_events[:, 2] = response_indices
+    response_exclude_events = [i for i, e in enumerate(response_indices) if
+                               e in
+                               exclude_events[config['response_event']]]
+    response_events = np.delete(response_events, response_exclude_events,
+                                axis=0)
+    all_events[config['response_event']] = response_events
 '''
