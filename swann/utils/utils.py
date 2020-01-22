@@ -280,6 +280,24 @@ def default_montage(raw):
                                          lpa=lpa, rpa=rpa, coord_frame='head')
 
 
+def most_square(n_plots):
+    ''' Finds the most square axes shape for n plots.
+    Parameters
+    ----------
+    n_plots : int
+        The number of plots to show
+    Returns
+    -------
+    dim0 : int
+        The first dimension of the plot
+    dim1 : int
+        The second dimension of the plot
+    '''
+    dim0 = int(n_plots ** 0.5)
+    dim1 = int(n_plots / dim0) + 1
+    return dim0, dim1
+
+
 '''
 def read_dig_montage(dig_path):
     if '.bvct' in op.basename(corf):

@@ -7,16 +7,86 @@ from swann.utils import get_config, derivative_fname, my_events
 from swann.analyses import decompose_tfr, find_bursts
 
 from mne.viz import iter_topography
+from mne.time_frequency import tfr_morlet
+from mne import Epochs
 
 
-def plot_group_beta_bursting(rawf, name, event, info, ch_names, events,
+def plot_spectrogram(rawf, raw, event, events, ch_name, lfreq=4,
+                     hfreq=50, dfreq=1, n_cycles=7, use_fft=True,
+                     verbose=True, overwrite=False):
+    ''' Plots a bar chart of beta bursts.
+    Parameters
+    ----------
+    rawf : pybids.BIDSlayout file
+        The object containing the raw data.
+    raw : mne.io.Raw
+        The raw data object.
+    event : str
+        The name of the event (e.g. `Response`).
+    events : np.array(n_events, 3)
+        The events from mne.events_from_annotations or mne.find_events
+        corresponding to the event and trials that are described by the name.
+    lfreq : float
+        The lowest frequency to use.
+    hfreq : float
+        The greatest frequency to use.
+    dfreq : int
+        The step size between lfreq and hfreq.
+    n_cycles : int, np.array
+        The number of cycles to use in the Morlet transform
+    use_fft : bool
+        Use Fast Fourier Transform see `mne.time_frequency.tfr.cwt`.
+    '''
+    config = get_config()
+    plotf = derivative_fname(rawf, 'plots/spectrograms',
+                             event + '_spectrogram_%s',
+                             config['fig'])
+    if op.isdir(op.dirname(plotf)) and not overwrite:
+        print('Spectrogram plot for %s already exists, ' % event +
+              'use `overwrite=True` to replot')
+        return
+    epochs = Epochs(raw, events, tmin=config['tmin'] - 1,
+                    tmax=config['tmax'] + 1)
+    epochs_tfr = tfr_morlet(epochs, np.arange(lfreq, hfreq, dfreq),
+                            n_cycles=n_cycles, use_fft=use_fft,
+                            average=False, return_itc=False)
+    epochs_tfr.crop(tmin=config['tmin'], tmax=config['tmax'])
+    epochs_tfr.data = np.log(epochs_tfr.data)
+    for i, ch_name in enumerate(epochs_tfr.ch_names):
+        this_plot_f = plotf % ch_name
+        fig, axes = plt.subplots(len(events), 1)
+        fig.subplots_adjust(right=0.85)
+        cax = fig.add_subplot(position=[0.9, 0.1, 0.05, .8])
+        fig.set_size_inches(12, 8)
+        vmin, vmax = epochs_tfr.data[:, i].min(), epochs_tfr.data[:, i].max()
+        for j, this_tfr in enumerate(epochs_tfr):
+            cmap = axes[j].imshow(this_tfr[i], aspect='auto', vmin=vmin,
+                                  vmax=vmax, cmap='YlOrRd')
+            axes[j].invert_yaxis()
+            axes[j].set_yticks(np.linspace(lfreq, hfreq, 3))
+            if j == int(len(events) / 2):
+                axes[j].set_ylabel('Frequency (Hz)')
+            axes[j].axvline(np.where(epochs_tfr.times == 0)[0][0], color='k')
+            axes[j].set_xticks([])
+        axes[-1].set_xlabel('Time (s)')
+        axes[-1].set_xticks(np.linspace(0, len(epochs_tfr.times), 10))
+        axes[-1].set_xticklabels(['%.2f' % t for t in epochs_tfr.times[
+            ::int(len(epochs_tfr.times) / 10)]])
+        cax = fig.colorbar(cmap, cax=cax)
+        cax.set_label('Log Power')
+        fig.suptitle('Time Frequency Decomposition for the %s ' % event +
+                     'Event, Channel %s' % ch_name)
+        fig.savefig(this_plot_f)
+
+
+def plot_group_beta_bursting(rawfs, name, event, info, ch_names, events,
                              method='peaks', ylim=0.5,
                              verbose=True, overwrite=False):
     pass
 
 
 def plot_beta_bursting(rawf, name, event, info, ch_names, events,
-                       method='peaks', ylim=0.5,
+                       picks=None, method='peaks', ylim=0.5,
                        verbose=True, overwrite=False):
     ''' Plots a bar chart of beta bursts.
     Parameters
@@ -24,13 +94,16 @@ def plot_beta_bursting(rawf, name, event, info, ch_names, events,
     rawf : pybids.BIDSlayout file
         The object containing the raw data.
     name : str
-        The name of the trials being passed (e.g. `Slow` or `All`)
+        The name of the trials being passed (e.g. `Slow` or `All`).
     event : str
-        The name of the event (e.g. `Response`)
+        The name of the event (e.g. `Response`).
     raw : mne.io.Raw.info
-        The raw info for topography
+        The raw info for topography.
     ch_names : list(str)
-        The names of the channels
+        The names of the channels.
+    picks : list(str) | None
+        If None, all the channels will be plotted on the topo. If channels are
+        given, they will be overlayed on one plot.
     events : np.array(n_events, 3)
         The events from mne.events_from_annotations or mne.find_events
         corresponding to the event and trials that are described by the name.
@@ -56,13 +129,22 @@ def plot_beta_bursting(rawf, name, event, info, ch_names, events,
     if verbose:
         print('Plotting beta bursting for %s trials during ' % name +
               'the %s event' % event)
-    for ax, idx in iter_topography(info, fig_facecolor='white',
-                                   axis_facecolor='white',
-                                   axis_spinecolor='white'):
-        _plot_beta_bursts(ch_names[idx], events, info['sfreq'],
-                          beta_bursts[beta_bursts['channel'] ==
-                                      ch_names[idx]], method,
-                          beta_burst_lim, ax=ax)
+    if picks is None:
+        for ax, idx in iter_topography(info, fig_facecolor='white',
+                                       axis_facecolor='white',
+                                       axis_spinecolor='white'):
+            _plot_beta_bursts(ch_names[idx], events, info['sfreq'],
+                              beta_bursts[beta_bursts['channel'] ==
+                                          ch_names[idx]], method,
+                              beta_burst_lim, ax=ax)
+    else:
+        fig, ax = plt.subplots()
+        for ch_name in picks:
+            _plot_beta_bursts(ch_name, events, info['sfreq'],
+                              beta_bursts[beta_bursts['channel'] ==
+                                          ch_names[idx]], method,
+                              beta_burst_lim, ax=ax)
+        ax.legend()
     fig = plt.gcf()
     fig.set_size_inches(10, 12)
     fig.suptitle('%s Trials Beta Bursting for ' % name +
@@ -71,43 +153,7 @@ def plot_beta_bursting(rawf, name, event, info, ch_names, events,
     fig.savefig(plotf)
 
 
-def plot_beta_bursts_comparison(rawf, behf, chs=['C3', 'C4'], ylim=0.75,
-                                verbose=True, overwrite=True):
-    ''' Plots the beta power overlayed with burst times for given channels.
-    Parameters
-    ----------
-    rawf : pybids.BIDSlayout file
-        The object containing the raw data.
-    behf : pybids.BIDSlayout file
-        The object containing the behavioral data.
-    ylim : 0 < float < 1
-        The scale of the yaxis (relative to channel with the max number of
-        bursts).
-    '''
-    config = get_config()
-    if all([op.isfile(derivative_fname(rawf, 'plots',
-                                       'beta_bursts_sf_comp_%s' % event,
-                                       config['fig']))
-            for event in my_events()]) and not overwrite:
-        print('Beta bursting plot already exist, use `overwrite=True` ' +
-              'to replot')
-        return
-        plotf = derivative_fname(rawf, 'plots',
-                                 'beta_bursts_sf_comp_%s' % event,
-                                 config['fig'])
-        fig, ax = plt.subplots()
-        _plot_beta_bursts(ch_names[idx], events[event], sfreq,
-                          beta_bursts[beta_bursts['channel'] ==
-                                      ch_names[idx]],
-                          beta_burst_lim, tfr[idx], ax=ax)
-        fig.set_size_inches(10, 10)
-        fig.suptitle('%s Trials Beta Bursting for ' % name +
-                     'the %s Event from ' % event +
-                     '%s to %s Seconds' % (config['tmin'], config['tmax']))
-        fig.savefig(plotf)
-
-
-def _plot_beta_bursts(ch_name, my_events, sfreq, my_beta_bursts,
+def _plot_beta_bursts(ch_name, events, sfreq, my_beta_bursts,
                       method, ylim, ax=None, verbose=True):
     config = get_config()
     tmin, tmax = config['tmin'], config['tmax']
@@ -128,11 +174,11 @@ def _plot_beta_bursts(ch_name, my_events, sfreq, my_beta_bursts,
         raise ValueError('Method of calculating beta bursts %s ' % method +
                          'not recognized.')
     bins = np.zeros((len(bin_indices)))
-    for i, event_index in enumerate(my_events[:, 0]):
+    for i, event_index in enumerate(events[:, 0]):
         for j, offset in enumerate(bin_indices):
             if event_index - offset in beta_burst_indices:
                 bins[j] += 1
-    ax.plot(times, bins)
+    ax.plot(times, bins, label=ch_name)
     ax.set_ylim([0, ylim])
     return plt.gcf()
 
