@@ -1,4 +1,8 @@
+import numpy as np
+import os.path as op
+import matplotlib.pyplot as plt
 
+from swann.utils import get_config
 
 from pactools import Comodulogram, raw_to_mask
 

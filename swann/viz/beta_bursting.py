@@ -64,7 +64,7 @@ def plot_beta_bursting(rawf, name, event, info, ch_names, events,
                                       ch_names[idx]], method,
                           beta_burst_lim, ax=ax)
     fig = plt.gcf()
-    fig.set_size_inches(10, 10)
+    fig.set_size_inches(10, 12)
     fig.suptitle('%s Trials Beta Bursting for ' % name +
                  'the %s Event from ' % event +
                  '%s to %s Seconds' % (config['tmin'], config['tmax']))
@@ -150,18 +150,18 @@ def plot_power(rawf, name, event, info, ch_names, events, tfr_name='beta',
                              '%s_%s_power_%s' % (name, tfr_name, event),
                              config['fig'])
     if op.isfile(plotf) and not overwrite:
-        print('Beta bursting plot already exist, use `overwrite=True` ' +
-              'to replot')
+        print('%s power plot already exist, ' % tfr_name.capitalize() +
+              'use `overwrite=True` to replot')
         return
     tfr, my_ch_names, sfreq = decompose_tfr(rawf, tfr_name, return_saved=True)
-    tfr /= tfr.std(axis=1)  # z-score power
+    tfr /= tfr.std(axis=1)[:, np.newaxis]  # z-score power
     if sfreq != info['sfreq']:
         raise ValueError('Raw sampling frequency mismatch with tfr sfreq')
     if any(ch_names != my_ch_names):
         raise ValueError('Raw channel names mismatch with tfr channel names')
     if verbose:
-        print('Plotting beta bursting for %s trials' % name +
-              'during the %s event' % event)
+        print('Plotting %s power for ' % tfr_name.capitalize() +
+              '%s trials during the %s event' % (name, event))
     for ax, idx in iter_topography(info, fig_facecolor='white',
                                    axis_facecolor='white',
                                    axis_spinecolor='white'):
@@ -191,10 +191,11 @@ def _plot_power(ch_name, my_events, sfreq,
         epochs_tfr[i] = [tfr_ch[event_index + offset] for offset in
                          bin_indices]
     evoked_tfr = np.mean(epochs_tfr, axis=0)
+    evoked_tfr -= np.mean(evoked_tfr)
     evoked_tfr_std = np.std(epochs_tfr, axis=0)
     ax.plot(times, evoked_tfr, label='Power')
     ax.fill_between(times, evoked_tfr - evoked_tfr_std,
-                    evoked_tfr + evoked_tfr_std)
+                    evoked_tfr + evoked_tfr_std, alpha=0.25)
     ax.set_ylim([0, 1])
     return plt.gcf()
 
@@ -211,5 +212,5 @@ def plot_beta_burst_topo():
     pass
 
 
-def plot_beta_burst_topo_group():
+def plot_group_beta_burst_topo():
     pass

@@ -243,6 +243,12 @@ def get_events(raw, exclude_events=None):
     return all_events
 
 
+def select_events(events, indices, reject_indices):
+    indices = set(indices) - set(reject_indices)
+    return events[[i for i, e in enumerate(events[:, 2]) if
+                   e in indices]]
+
+
 def _this_events(events, event):
     event_id = my_events()[event]
     if isinstance(event_id, list):
