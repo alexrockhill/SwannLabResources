@@ -9,7 +9,7 @@ from swann.preprocessing import preproc_slowfast, slowfast_group
 
 def plot_slow_fast_group(behfs, name, overwrite=False):
     config = get_config()
-    plotf = op.join(config['bids_dir'], 'derivatives',
+    plotf = op.join(config['bids_dir'], 'derivatives/plots/slowfast',
                     'group_%s_slowfast.' % name + config['fig'])
     slow, fast, blocks, p, accuracy = slowfast_group(behfs)
     _plot_slow_fast(slow, fast, blocks, p, accuracy, plotf, config,
@@ -20,7 +20,7 @@ def plot_slow_fast_group(behfs, name, overwrite=False):
 def plot_slow_fast(behf, overwrite=False):
     config = get_config()
     subject = behf.entities['subject']
-    plotf = derivative_fname(behf, 'plots', 'slowfast', config['fig'])
+    plotf = derivative_fname(behf, 'plots/slowfast', 'slowfast', config['fig'])
     slow, fast, blocks, p, accuracy = \
         preproc_slowfast(behf, return_saved=True)
     _plot_slow_fast(slow, fast, blocks, p, accuracy, plotf, config,
