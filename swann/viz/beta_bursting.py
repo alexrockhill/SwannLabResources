@@ -11,7 +11,7 @@ from mne.time_frequency import tfr_morlet
 from mne import Epochs
 
 
-def plot_spectrogram(rawf, raw, event, events, lfreq=4,
+def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
                      hfreq=50, dfreq=1, n_cycles=7, use_fft=True,
                      verbose=True, overwrite=False):
     ''' Plots a bar chart of beta bursts.
@@ -26,6 +26,8 @@ def plot_spectrogram(rawf, raw, event, events, lfreq=4,
     events : np.array(n_events, 3)
         The events from mne.events_from_annotations or mne.find_events
         corresponding to the event and trials that are described by the name.
+    columns : int
+        The number of columns to use in the plot.
     lfreq : float
         The lowest frequency to use.
     hfreq : float
@@ -51,10 +53,11 @@ def plot_spectrogram(rawf, raw, event, events, lfreq=4,
                             n_cycles=n_cycles, use_fft=use_fft,
                             average=False, return_itc=False)
     epochs_tfr.crop(tmin=config['tmin'], tmax=config['tmax'])
-    epochs_tfr.data = np.log(epochs_tfr.data)
     for i, ch_name in enumerate(epochs_tfr.ch_names):
         this_plot_f = plotf % ch_name
-        fig, axes = plt.subplots(len(events), 1)
+        rows = int(len(events) / columns)
+        fig, axes = plt.subplots(rows, columns)
+        axes = axes.flatten()
         fig.subplots_adjust(right=0.85)
         cax = fig.add_subplot(position=[0.9, 0.1, 0.05, .8])
         fig.set_size_inches(12, 8)
@@ -63,33 +66,65 @@ def plot_spectrogram(rawf, raw, event, events, lfreq=4,
             cmap = axes[j].imshow(this_tfr[i], aspect='auto', vmin=vmin,
                                   vmax=vmax, cmap='coolwarm')
             axes[j].invert_yaxis()
-            axes[j].set_yticks(np.linspace(0, (hfreq - lfreq) / dfreq, 3))
-            axes[j].set_yticklabels(['%i' % f for f in
-                                     np.linspace(lfreq, hfreq, 3)])
+            if j % columns == 0:
+                axes[j].set_yticks(np.linspace(0, (hfreq - lfreq) / dfreq, 3))
+                axes[j].set_yticklabels(['%i' % f for f in
+                                         np.linspace(lfreq, hfreq, 3)])
+            else:
+                axes[j].set_yticklabels([])
             if j == int(len(events) / 2):
                 axes[j].set_ylabel('Frequency (Hz)')
             axes[j].axvline(np.where(epochs_tfr.times == 0)[0][0], color='k')
             axes[j].set_xticks([])
-        axes[-1].set_xlabel('Time (s)')
-        axes[-1].set_xticks(np.linspace(0, len(epochs_tfr.times), 10))
-        axes[-1].set_xticklabels(['%.2f' % t for t in epochs_tfr.times[
-            ::int(len(epochs_tfr.times) / 10)]])
+        axes = axes.reshape(rows, columns)
+        for col_idx in range(columns):
+            axes[-1, col_idx].set_xlabel('Time (s)')
+            axes[-1, col_idx].set_xticks(
+                np.linspace(0, len(epochs_tfr.times), 10))
+            axes[-1, col_idx].set_xticklabels(
+                ['%.2f' % t for t in np.linspace(epochs_tfr.times[0],
+                                                 epochs_tfr.times[-1], 10)])
         cax = fig.colorbar(cmap, cax=cax)
-        cax.set_label('Log Power')
+        cax.set_label('Power')
         fig.suptitle('Time Frequency Decomposition for the %s ' % event +
                      'Event, Channel %s' % ch_name)
         fig.savefig(this_plot_f)
     plt.close('all')
 
 
-def plot_group_bursting(rawfs, name, event, info, events,
-                        method='peaks', ylim=0.5,
+def plot_group_bursting(rawfs, name, event, events,
+                        infos=None, picks=None, method='peaks', ylim=0.5,
                         verbose=True, overwrite=False):
-    pass
+    ''' Plots bursts on topography or in graph overlayed.
+    Parameters
+    ----------
+    rawf : pybids.BIDSlayout file
+        The object containing the raw data.
+    name : str
+        The name of the trials being passed (e.g. `Slow` or `All`).
+    event : str
+        The name of the event (e.g. `Response`).
+    events : np.array(n_events, 3)
+        The events from mne.events_from_annotations or mne.find_events
+        corresponding to the event and trials that are described by the name.
+    tfr_name : str
+        What to call the frequencies used e.g. beta
+    info : mne.io.Raw.info
+        The info for topographic plotting
+    picks : list(str) | None
+        If None, all the channels will be plotted on the topo. If channels are
+        given, they will be overlayed on one plot.
+    method : ('peaks', 'all')
+        Plot only the peak values (`peaks`) of beta bursts or plot all
+        time values (`all`) during which a beta burst is occuring.
+    ylim : 0 < float < 1
+        The scale of the yaxis (relative to channel with the max number of
+        bursts).
+    '''
 
 
-def plot_bursting(rawf, name, event, info, events, tfr_name='beta',
-                  picks=None, method='peaks', ylim=0.5,
+def plot_bursting(rawf, name, event, events, tfr_name='beta',
+                  info=None, picks=None, method='peaks', ylim=0.5,
                   verbose=True, overwrite=False):
     ''' Plots bursts on topography or in graph overlayed.
     Parameters
@@ -105,6 +140,8 @@ def plot_bursting(rawf, name, event, info, events, tfr_name='beta',
         corresponding to the event and trials that are described by the name.
     tfr_name : str
         What to call the frequencies used e.g. beta
+    info : mne.io.Raw.info
+        The info for topographic plotting
     picks : list(str) | None
         If None, all the channels will be plotted on the topo. If channels are
         given, they will be overlayed on one plot.
@@ -115,6 +152,9 @@ def plot_bursting(rawf, name, event, info, events, tfr_name='beta',
         The scale of the yaxis (relative to channel with the max number of
         bursts).
     '''
+    if info is None and picks is None:
+        raise ValueError('`info` and `picks` are none, if no picks are ' +
+                         'specified, info is needed for topo plotting.')
     config = get_config()
     plotf = derivative_fname(rawf, 'plots/%s_bursting' % tfr_name,
                              '%s_%s_burst_%s_%s' % (tfr_name, name,
@@ -366,15 +406,13 @@ def _plot_beta_shape(ch_name, events, sfreq, my_beta_bursts,
     return plt.gcf()
 
 
-
-
-def plot_group_beta_burst_shape():
+def plot_group_burst_shape():
     pass
 
 
-def plot_beta_burst_topo():
+def plot_burst_topo():
     pass
 
 
-def plot_group_beta_burst_topo():
+def plot_group_burst_topo():
     pass
