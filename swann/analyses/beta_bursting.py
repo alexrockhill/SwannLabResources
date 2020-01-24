@@ -1,5 +1,4 @@
 import numpy as np
-import os.path as op
 
 from pandas import DataFrame, read_csv
 
@@ -115,8 +114,7 @@ def decompose_tfr(rawf, name='beta', lfreq=15, hfreq=29, dfreq=1, n_cycles=7,
             print('Computing Morlet wavelet transform on frequency %s' % freq)
         W = morlet(raw.info['sfreq'], [freq], n_cycles=n_cycles,
                    zero_mean=False)
-        this_tfr = cwt(raw_data, W, use_fft=use_fft,
-                       mode=mode)
+        this_tfr = cwt(raw_data, W, use_fft=use_fft, mode=mode)
         tfr += abs(this_tfr[:, 0])
     tfr /= len(freqs)
     np.savez_compressed(tfrf, tfr=tfr, ch_names=raw.ch_names,
