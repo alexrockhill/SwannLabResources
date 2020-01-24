@@ -66,7 +66,7 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
         vmin, vmax = epochs_tfr.data[:, i].min(), epochs_tfr.data[:, i].max()
         for j, this_tfr in enumerate(epochs_tfr):
             cmap = axes[j].imshow(this_tfr[i], aspect='auto', vmin=vmin,
-                                  vmax=vmax, cmap='coolwarm')
+                                  vmax=vmax, cmap='RdYlBu_r')
             axes[j].invert_yaxis()
             if j % columns == 0:
                 axes[j].set_yticks(np.linspace(0, (hfreq - lfreq) / dfreq, 3))
@@ -91,7 +91,7 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
         fig.suptitle('Time Frequency Decomposition for the %s ' % event +
                      'Event, Channel %s' % ch_name)
         fig.savefig(this_plot_f)
-    plt.close('all')
+        plt.close(fig)
 
 
 def plot_group_bursting(rawfs, name, event, events, tfr_name='beta',
