@@ -298,6 +298,23 @@ def most_square(n_plots):
     return dim0, dim1
 
 
+def rolling_mean(signal, n=10):
+    rolling_signal = np.zeros(signal.shape)
+    half_n = int(n / 2)
+    for offset in range(-half_n, half_n):
+        if offset < 0:
+            rolling_signal[-offset:] += signal[:offset]
+        elif offset > 0:
+            rolling_signal[:-offset] += signal[offset:]
+        else:
+            rolling_signal += signal
+    denomenators = np.concatenate([np.arange(half_n, 2 * half_n),
+                                   np.ones((len(signal) - half_n * 2)) *
+                                   half_n * 2,
+                                   np.flip(np.arange(half_n, 2 * half_n))])
+    return rolling_signal / denomenators
+
+
 '''
 def read_dig_montage(dig_path):
     if '.bvct' in op.basename(corf):

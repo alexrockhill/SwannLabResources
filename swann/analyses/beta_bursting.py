@@ -3,6 +3,7 @@ import numpy as np
 from pandas import DataFrame, read_csv
 
 from swann.utils import derivative_fname, pick_data, check_overwrite_or_return
+
 from swann.preprocessing import apply_ica
 
 from mne.time_frequency.tfr import cwt

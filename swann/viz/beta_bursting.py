@@ -1,11 +1,11 @@
+import os
 import numpy as np
 import os.path as op
-from pandas import concat
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-from swann.utils import get_config, derivative_fname
+from swann.utils import get_config, derivative_fname, rolling_mean
 from swann.analyses import decompose_tfr, find_bursts
 
 from mne.viz import iter_topography
@@ -15,7 +15,7 @@ from mne import Epochs
 
 def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
                      hfreq=50, dfreq=1, n_cycles=7, use_fft=True,
-                     verbose=True, overwrite=False):
+                     plot_bursts=True, verbose=True, overwrite=False):
     ''' Plots a bar chart of beta bursts.
     Parameters
     ----------
@@ -40,6 +40,8 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
         The number of cycles to use in the Morlet transform
     use_fft : bool
         Use Fast Fourier Transform see `mne.time_frequency.tfr.cwt`.
+    plot_bursts : bool
+        Whether to include vertical bars for when the bursts are detected.
     '''
     config = get_config()
     plotf = derivative_fname(rawf, 'plots/spectrograms',
@@ -49,6 +51,8 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
         print('Spectrogram plot for %s already exists, ' % event +
               'use `overwrite=True` to replot')
         return
+    if plot_bursts:
+        bursts = find_bursts(rawf, return_saved=True)
     epochs = Epochs(raw, events, tmin=config['tmin'] - 1,
                     tmax=config['tmax'] + 1)
     epochs_tfr = tfr_morlet(epochs, np.arange(lfreq, hfreq, dfreq),
@@ -78,14 +82,26 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
                 axes[j].set_ylabel('Frequency (Hz)')
             axes[j].axvline(np.where(epochs_tfr.times == 0)[0][0], color='k')
             axes[j].set_xticks([])
+            if plot_bursts:
+                min_idx = events[j, 0] + raw.info['sfreq'] * config['tmin']
+                max_idx = events[j, 0] + raw.info['sfreq'] * config['tmax']
+                these_bursts = bursts[(bursts['channel'] == ch_name) &
+                                      (bursts['burst_end'] > min_idx) &
+                                      (bursts['burst_start'] < max_idx)]
+                if these_bursts.size > 0:
+                    for burst_idx in these_bursts.index:
+                        for start_stop in ['burst_start', 'burst_end']:
+                            axes[j].axvline(x=these_bursts.loc[burst_idx,
+                                                               start_stop] -
+                                            min_idx, color='green')
         axes = axes.reshape(rows, columns)
         for col_idx in range(columns):
             axes[-1, col_idx].set_xlabel('Time (s)')
             axes[-1, col_idx].set_xticks(
-                np.linspace(0, len(epochs_tfr.times), 10))
+                np.linspace(0, len(epochs_tfr.times), 5))
             axes[-1, col_idx].set_xticklabels(
                 ['%.2f' % t for t in np.linspace(epochs_tfr.times[0],
-                                                 epochs_tfr.times[-1], 10)])
+                                                 epochs_tfr.times[-1], 5)])
         cax = fig.colorbar(cmap, cax=cax)
         cax.set_label('Power')
         fig.suptitle('Time Frequency Decomposition for the %s ' % event +
@@ -94,21 +110,20 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
         plt.close(fig)
 
 
-def plot_group_bursting(rawfs, name, event, events, tfr_name='beta',
-                        infos=None, picks=None, method='peaks', ylim=0.5,
+def plot_group_bursting(rawfs, event, events, tfr_name='beta',
+                        infos=None, picks=None, method='peaks', ylim=None,
                         verbose=True, overwrite=False):
     ''' Plots bursts on topography or in graph overlayed.
     Parameters
     ----------
     rawfs : list of pybids.BIDSlayout file
         The object containing the raw data.
-    name : str
-        The name of the trials being passed (e.g. `Slow` or `All`).
     event : str
         The name of the event (e.g. `Response`).
-    events : dict keys: rawf.path, values: np.array(n_events, 3)
-        The events from mne.events_from_annotations or mne.find_events
-        corresponding to the event and trials that are described by the name.
+    events : dict(str=dict(str=np.array(n_events, 3)))
+        A dict with keys that are name and secondary keys that are rawf
+        paths and values that are events from mne.events_from_annotations or
+        mne.find_events; e.g. {'All': {'sub-1...': events}}.
     tfr_name : str
         What to call the frequencies used e.g. beta
     info : mne.io.Raw.info
@@ -127,46 +142,47 @@ def plot_group_bursting(rawfs, name, event, events, tfr_name='beta',
         raise ValueError('`infos` and `picks` are none, if no picks are ' +
                          'specified, infos are needed for topo plotting.')
     config = get_config()
-    plotf = \
-        op.join(config['bids_dir'], 'derivatives/plots/%s_bursting' % tfr_name,
-                'group_%s_%s_burst_%s_%s' % (tfr_name, name, method, event) +
-                ('' if picks is None else '_' + '_'.join(picks)) +
-                '.' + config['fig'])
+    picks_str = ('' if picks is None else 'channels_' + '_and_'.join(picks))
+    names_str = '_and_'.join(events.keys())
+    basename = '%s_%s_bursting_%s_%s_%s.%s' % (names_str, tfr_name, method,
+                                               event, picks_str, config['fig'])
+    plotf = op.join(config['bids_dir'],
+                    'derivatives/plots/%s_bursting' % tfr_name, basename)
+    if not op.isdir(op.dirname(plotf)):
+        os.makedirs(op.dirname(plotf))
     if op.isfile(plotf) and not overwrite:
         print('Group %s bursting plot for %s ' % (tfr_name.title(), event) +
               'already exists, use `overwrite=True` to replot')
         return
-    if picks is None:
-        ch_names = picks
-    else:
-        ch_names = set([ch for info in infos for ch in info['ch_names']])
-    bursts = concat([find_bursts(rawf, return_saved=True) for rawf in rawfs])
+    bursts = {rawf.path: find_bursts(rawf, return_saved=True)
+              for rawf in rawfs}
     info_max_idx = np.argmax([len(info['ch_names']) for info in infos])
     info = infos[info_max_idx]
-    fig = _plot_bursting(ch_names, bursts, name, event, events, tfr_name, info,
-                         picks, method, ylim, verbose)
+    ch_names = info['ch_names'] if picks is None else picks
+    fig = _plot_bursting(ch_names, bursts, event, events, tfr_name, info,
+                         picks, method, ylim, verbose, group=True)
     fig.set_size_inches(10, 12)
-    fig.suptitle('Group %s Trials %s Bursting for ' % (tfr_name, name) +
-                 'the %s Event from ' % event +
+    fig.suptitle('%s Trials ' % names_str.replace('_', ' ') +
+                 '%s Bursting ' % tfr_name +
+                 'for the %s Event from ' % event +
                  '%s to %s Seconds' % (config['tmin'], config['tmax']))
     fig.savefig(plotf)
 
 
-def plot_bursting(rawf, name, event, events, tfr_name='beta',
-                  info=None, picks=None, method='peaks', ylim=0.5,
+def plot_bursting(rawf, event, events, tfr_name='beta',
+                  info=None, picks=None, method='peaks', ylim=None,
                   verbose=True, overwrite=False):
     ''' Plots bursts on topography or in graph overlayed.
     Parameters
     ----------
     rawf : pybids.BIDSlayout file
         The object containing the raw data.
-    name : str
-        The name of the trials being passed (e.g. `Slow` or `All`).
     event : str
         The name of the event (e.g. `Response`).
-    events : np.array(n_events, 3) or dict with key: name values: events
-        The events from mne.events_from_annotations or mne.find_events
-        corresponding to the event and trials that are described by the name.
+    events : dict(str=np.array(n_events, 3))
+        A dict with values that are events from mne.events_from_annotations or
+        mne.find_events corresponding to the event and trials that are
+        described by the names which are the keys (e.g. `Slow` or `All`).
     tfr_name : str
         What to call the frequencies used e.g. beta
     info : mne.io.Raw.info
@@ -185,11 +201,12 @@ def plot_bursting(rawf, name, event, events, tfr_name='beta',
         raise ValueError('`info` and `picks` are none, if no picks are ' +
                          'specified, info is needed for topo plotting.')
     config = get_config()
+    picks_str = ('' if picks is None else 'channels_' + '_and_'.join(picks))
+    names_str = '_and_'.join(events.keys())
+    basename = '%s_%s_bursting_%s_%s_%s.%s' % (names_str, tfr_name, method,
+                                               event, picks_str, config['fig'])
     plotf = derivative_fname(rawf, 'plots/%s_bursting' % tfr_name,
-                             '%s_%s_burst_%s_%s' % (tfr_name, name,
-                                                    method, event) +
-                             ('' if picks is None else '_' + '_'.join(picks)),
-                             config['fig'])
+                             basename)
     if op.isfile(plotf) and not overwrite:
         print('%s bursting plot for %s ' % (tfr_name.title(), event) +
               'already exists, use `overwrite=True` to replot')
@@ -197,53 +214,89 @@ def plot_bursting(rawf, name, event, events, tfr_name='beta',
     ch_names = info['ch_names'] if picks is None else picks
     events = events if isinstance(events, dict) else {None: events}
     bursts = find_bursts(rawf, return_saved=True)
-    fig = _plot_bursting(ch_names, bursts, name, event, events, tfr_name, info,
-                         picks, method, ylim, verbose)
+    fig = _plot_bursting(ch_names, bursts, event, events, tfr_name, info,
+                         picks, method, ylim, verbose, group=False)
     fig.set_size_inches(10, 12)
-    fig.suptitle('%s Trials %s Bursting for ' % (tfr_name, name) +
-                 'the %s Event from ' % event +
+    fig.suptitle('%s Trials ' % names_str.replace('_', ' ') +
+                 '%s Bursting ' % tfr_name +
+                 'for the %s Event from ' % event +
                  '%s to %s Seconds' % (config['tmin'], config['tmax']))
     fig.savefig(plotf)
 
 
-def _plot_bursting(ch_names, bursts, name, event, events, tfr_name, info,
-                   picks, method, ylim, verbose):
-    if verbose:
-        print('Plotting %s bursting for %s ' % (tfr_name, name) +
-              'trials during the %s event' % event)
+def _plot_bursting(ch_names, bursts, event, events, tfr_name, info,
+                   picks, method, ylim, verbose, group):
+    config = get_config()
+    sfreq = info['sfreq']
+    tmin, tmax = config['tmin'], config['tmax']
+    bin_indices = range(int(sfreq * tmin), int(sfreq * tmax))
+    times = np.linspace(tmin, tmax, len(bin_indices))
     if picks is None:
         for ax, idx in iter_topography(info, fig_facecolor='white',
                                        axis_facecolor='white',
                                        axis_spinecolor='white'):
-            for name, events in events.items():
+            for name, these_events in events.items():
+                if verbose:
+                    print('Plotting %s bursting for %s ' % (tfr_name, name) +
+                          'trials during the %s event' % event)
                 name = (ch_names[idx] if name is None else
                         name + ' ' + ch_names[idx])
-                _plot_bursts(name, events, info['sfreq'],
-                             bursts[bursts['channel'] ==
-                                    ch_names[idx]], method,
-                             ylim, ax=ax)
+                if group:
+                    bins = np.zeros((len(bin_indices)))
+                    for rawf in bursts:
+                        bins += _bin_bursts(name, bin_indices,
+                                            these_events[rawf],
+                                            info['sfreq'], bursts[rawf][
+                                                bursts[rawf]['channel'] ==
+                                                ch_names[idx]],
+                                            method, ax=ax)
+                    bins /= len(bursts)
+                else:
+                    bins = _bin_bursts(name, bin_indices, these_events,
+                                       info['sfreq'],
+                                       bursts[bursts['channel'] ==
+                                              ch_names[idx]], method,
+                                       ax=ax)
+                ax.plot(times, rolling_mean(bins, n=int(sfreq / 10)),
+                        label=name)
+                ylim = bins.max() * 1.1 if ylim is None else ylim
+                ax.set_ylim([0, ylim])
     else:
         fig, ax = plt.subplots()
         for ch_name in picks:
-            for name, events in events.items():
+            for name, these_events in events.items():
                 name = (ch_name if name is None else
                         name + ' ' + ch_name)
-                _plot_bursts(name, events, info['sfreq'],
-                             bursts[bursts['channel'] ==
-                                    ch_name], method,
-                             ylim, ax=ax)
+                if verbose:
+                    print('Plotting %s bursting for %s ' % (tfr_name, name) +
+                          'trials during the %s event' % event)
+                if group:
+                    bins = np.zeros((len(bin_indices)))
+                    for rawf in bursts:
+                        bins += _bin_bursts(name, bin_indices,
+                                            these_events[rawf],
+                                            info['sfreq'],
+                                            bursts[rawf][
+                                                bursts[rawf]['channel'] ==
+                                                ch_name],
+                                            method, ax=ax)
+                    bins /= len(bursts)
+                else:
+                    bins = _bin_bursts(name, these_events, info['sfreq'],
+                                       bursts[bursts['channel'] == ch_name],
+                                       method, ax=ax)
+                ax.plot(times, rolling_mean(bins, n=int(sfreq * 0.25)),
+                        label=name)
+        if ylim is not None:
+            ax.set_ylim([0, ylim])
         ax.legend()
     return plt.gcf()
 
 
-def _plot_bursts(name, events, sfreq, my_bursts,
-                 method, ylim, ax=None, verbose=True):
-    config = get_config()
-    tmin, tmax = config['tmin'], config['tmax']
-    bin_indices = range(int(sfreq * tmin), int(sfreq * tmax))
-    times = np.linspace(tmin, tmax, len(bin_indices))
+def _bin_bursts(name, bin_indices, events, sfreq, my_bursts,
+                method, ax=None, verbose=True):
     if verbose:
-        print('Plotting %s' % name)
+        print('Binning %s' % name)
     if ax is None:
         fig, ax = plt.subplots()
     if method == 'peaks':
@@ -272,39 +325,91 @@ def _plot_bursts(name, events, sfreq, my_bursts,
             if event_index - offset in burst_indices:
                 bins[j] += 1
     bins /= len(events)
-    ax.plot(times, bins, label=name)
-    ax.set_ylim([0, ylim])
+    return bins
 
 
-def plot_group_power(rawf, name, event, info, ch_names, events,
-                     tfr_name='beta', ylim=0.5,
-                     verbose=True, overwrite=False):
-    # find max number of channels
-    # for each channel append tfr on sequentially, adjust event index
-    pass
+def plot_group_power(rawf, name, event, events, info=None, picks=None,
+                     tfr_name='beta', verbose=True, overwrite=False):
+    ''' Plots a line graph with one standard deviation shaded of power.
+    Parameters
+    ----------
+    rawfs : pybids.BIDSlayout file
+        The objects containing the raw data.
+    name : str
+        The name of the trials being passed (e.g. `Slow` or `All`).
+    event : str
+        The name of the event (e.g. `Response`).
+    events : dict(str=dict(str=np.array(n_events, 3)))
+        A dict with keys that are name and secondary keys that are rawf
+        paths and values that are events from mne.events_from_annotations or
+        mne.find_events; e.g. {'All': {'sub-1...': events}}.
+    infos : list of instance of mne.io.Raw.info
+        The info objects with channel names and positions.
+    picks : list(str) | None
+        If None, all the channels will be plotted on the topo. If channels are
+        given, they will be overlayed on one plot.
+    tfr_name : str
+        The keyword name of the tfr that was previously computed.
+    '''
+    config = get_config()
+    plotf = derivative_fname(rawf, 'plots/%s_power' % tfr_name,
+                             '%s_%s_power_%s' % (name, tfr_name, event),
+                             config['fig'])
+    if op.isfile(plotf) and not overwrite:
+        print('%s power plot already exist, ' % tfr_name.capitalize() +
+              'use `overwrite=True` to replot')
+        return
+    tfr, my_ch_names, sfreq = decompose_tfr(rawf, tfr_name, return_saved=True)
+    tfr /= tfr.mean(axis=1)[:, np.newaxis]  # z-score power
+    if sfreq != info['sfreq']:
+        raise ValueError('Raw sampling frequency mismatch with tfr sfreq')
+    if any(info['ch_names'] != my_ch_names):
+        raise ValueError('Raw channel names mismatch with tfr channel names')
+    if verbose:
+        print('Plotting %s power for ' % tfr_name.capitalize() +
+              '%s trials during the %s event' % (name, event))
+    if picks is None:
+        for ax, idx in iter_topography(info, fig_facecolor='white',
+                                       axis_facecolor='white',
+                                       axis_spinecolor='white'):
+            _plot_power(info['ch_names'][idx], events, sfreq,
+                        tfr[idx], np.quantile(tfr, 0.9), ax=ax)
+    else:
+        pick_indices = [list(my_ch_names).index(ch) for ch in picks]
+        tfr = tfr[pick_indices]
+        fig, ax = plt.subplots()
+        for idx, ch_name in enumerate(picks):
+            _plot_power(ch_name, events, sfreq, tfr[idx],
+                        np.quantile(tfr, 0.9), ax=ax)
+        ax.legend()
+    fig = plt.gcf()
+    fig.set_size_inches(10, 10)
+    fig.suptitle(('%s Trials z-scored %s Power for ' % (name, tfr_name) +
+                  'the %s Event from ' % event +
+                  '%s to %s Seconds' % (config['tmin'], config['tmax'])
+                  ).title())
+    fig.savefig(plotf)
 
 
-def plot_power(rawf, name, event, info, events, tfr_name='beta',
-               picks=None, verbose=True, overwrite=False):
+def plot_power(rawf, event, events, info=None, picks=None,
+               tfr_name='beta', verbose=True, overwrite=False):
     ''' Plots a line graph with one standard deviation shaded of power.
     Parameters
     ----------
     rawf : pybids.BIDSlayout file
         The object containing the raw data.
-    name : str
-        The name of the trials being passed (e.g. `Slow` or `All`).
     event : str
         The name of the event (e.g. `Response`).
-    info : instance of mne.io.Raw.info
-        The info object with channel names and positions
-    events : np.array(n_events, 3)
+    events : dict(str=np.array(n_events, 3))
         The events from mne.events_from_annotations or mne.find_events
         corresponding to the event and trials that are described by the name.
-    tfr_name : str
-        The keyword name of the tfr that was previously computed.
+    info : instance of mne.io.Raw.info
+        The info object with channel names and positions.
     picks : list(str) | None
         If None, all the channels will be plotted on the topo. If channels are
         given, they will be overlayed on one plot.
+    tfr_name : str
+        The keyword name of the tfr that was previously computed.
     '''
     config = get_config()
     plotf = derivative_fname(rawf, 'plots/%s_power' % tfr_name,
