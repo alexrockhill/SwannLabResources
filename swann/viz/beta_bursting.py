@@ -304,11 +304,11 @@ def _plot_burst_data(plot_data, ch_names, events, times, sfreq,
                 if verbose:
                     print('%s-%s: p = %s' % (labels[i], labels[i + j + 1], p))
                 if p < 0.05:
-                    y = max([max(durations0), max(durations1)]) * 1.1
+                    y = (max([max(durations0), max(durations1)]) + 0.01) * 1.1
                     ax.axhline(y=y, xmin=(i + 0.5) / len(all_durations),
                                xmax=(i + j + 1 + 0.5) / len(all_durations),
                                color='k')
-                    ax.text(np.mean([i, i + j + 1]) - 0.5, y * 1.1,
+                    ax.text(np.mean([i, i + j + 1]) - 0.5, (y + 0.01) * 1.05,
                             'p = %.3f' % p if p > 0.001 else 'p < 0.001')
         ax.set_xticklabels(labels)
     else:
