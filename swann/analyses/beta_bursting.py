@@ -19,7 +19,7 @@ def get_bursts(events, method, rolling=0.25):
         A dict with keys that are name and secondary keys that are rawf
         paths and values that are events from mne.events_from_annotations or
         mne.find_events; e.g. {'All': {'sub-1...': events}}.
-    method : ('peaks', 'all', 'durations')
+    method : ('peaks', 'all', 'durations', 'shape')
         Plot only the peak values (`peaks`) of beta bursts or plot all
         time values (`all`) during which a beta burst is occuring.
     Returns
@@ -44,11 +44,14 @@ def get_bursts(events, method, rolling=0.25):
             bin_indices = range(int(info['sfreq'] * tmin),
                                 int(info['sfreq'] * tmax))
             times = np.linspace(tmin, tmax, len(bin_indices))
-            burst_data[name][rawf.path] = \
-                (times, {ch: _get_bursts(bursts[bursts['channel'] == ch],
-                                         these_events, bin_indices, method,
-                                         info['sfreq']) for ch in
-                         info['ch_names']})
+            for ch in info['ch_names']:
+                this_burst_data = \
+                    _get_bursts(bursts[bursts['channel'] == ch], these_events,
+                                bin_indices, method, info['sfreq'])
+            if ch in burst_data[name]:
+                burst_data[name][ch][rawf.path] = (times, this_burst_data)
+            else:
+                burst_data[name][ch] = {rawf.path: (times, this_burst_data)}
     return burst_data
 
 

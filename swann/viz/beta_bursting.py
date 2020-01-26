@@ -136,7 +136,7 @@ def plot_group_bursting(rawfs, event, events, tfr_name='beta',
     picks : list(str) | None
         If None, all the channels will be plotted on the topo. If channels are
         given, they will be overlayed on one plot.
-    method : ('peaks', 'all', 'durations')
+    method : ('peaks', 'all', 'durations', 'shape')
         Plot only the peak values (`peaks`) of beta bursts or plot all
         time values (`all`) during which a beta burst is occuring.
     ylim : 0 < float < 1
@@ -190,7 +190,7 @@ def plot_bursting(rawf, event, events, tfr_name='beta',
     picks : list(str) | None
         If None, all the channels will be plotted on the topo. If channels are
         given, they will be overlayed on one plot.
-    method : ('peaks', 'all', 'durations')
+    method : ('peaks', 'all', 'durations', 'shape')
         Plot only the peak values (`peaks`) of beta bursts or plot all
         time values (`all`) during which a beta burst is occuring.
     ylim : 0 < float < 1
@@ -252,25 +252,19 @@ def _plot_bursting(burst_data, picks, method, ylim, rolling, verbose):
 def _plot_burst_data(plot_data, method, ylim, rolling, ax, verbose,
                      ch_name=None):
     if method in ('all', 'peaks'):
+        times = None
         for name in plot_data:
-            bins = dict()
-            times = None
-            for rawf in plot_data[name]:
-                for ch in plot_data[name][rawf]:
-                    these_times, these_bins = plot_data[name][rawf][ch]
+            for ch in plot_data[name]:
+                bins = list()
+                for rawf in plot_data[name][ch]:
+                    these_times, these_bins = plot_data[name][ch][rawf]
                     if times is not None and any(these_times != times):
                         raise ValueError('Times are not all the same ' +
                                          'for group averaging')
-                    if ch in bins:
-                        bins[ch].append(these_bins)
-                    else:
-                        bins[ch] = [these_bins]
-                for ch in plot_data[name][rawf]:
-                    if ch_name is not None and ch != ch_name:
-                        continue
-                    these_bins = np.mean(bins[ch])
-                    label = ch if name is None else name + '_' + ch
-                    ax.plot(times, these_bins, label=label)
+                    times = these_times
+                    bins.append(these_bins)
+                label = ch if name is None else name + '_' + ch
+                ax.plot(times, np.mean(these_bins, axis=1), label=label)
         if ylim is None:
             ax.set_ylim([0, ylim])
     elif method in ('durations',):
@@ -278,9 +272,9 @@ def _plot_burst_data(plot_data, method, ylim, rolling, ax, verbose,
         labels = list()
         colors = list()
         for name in plot_data:
-            for rawf in plot_data[name]:
-                for ch_idx, ch in enumerate(plot_data[name][rawf]):
-                    times, durations = plot_data[ch_name][name][ch]
+            for ch_idx, ch in enumerate(plot_data[name]):
+                for rawf in plot_data[name][ch]:
+                    times, durations = plot_data[name][ch][rawf]
                     all_durations.append(durations)
                     labels.append(ch if name is None else name + ' ' + ch)
                     colors.append(list(BASE_COLORS)[ch_idx % len(BASE_COLORS)])
@@ -292,6 +286,7 @@ def _plot_burst_data(plot_data, method, ylim, rolling, ax, verbose,
             ax.scatter(np.repeat(i, len(durations)), durations,
                        color=colors[i], alpha=0.1)
         ax.set_xticks(range(len(all_durations)))
+        '''
         for i, durations0 in enumerate(all_durations):
             for j, durations1 in enumerate(all_durations[i + 1:]):
                 t, p = ttest_ind(durations0, durations1)
@@ -304,6 +299,7 @@ def _plot_burst_data(plot_data, method, ylim, rolling, ax, verbose,
                                color='k')
                     ax.text(np.mean([i, i + j + 1]) - 0.5, (y + 0.01) * 1.05,
                             'p = %.3f' % p if p > 0.001 else 'p < 0.001')
+        '''
         ax.set_xticklabels(labels)
     else:
         raise ValueError('Unrecognized method %s' % method)
