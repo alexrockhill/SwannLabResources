@@ -11,6 +11,17 @@ from mne.preprocessing import (ICA, read_ica, create_eog_epochs,
 from mne import Epochs
 
 
+def get_raw(rawf):
+    raw = read_raw(rawf.path)
+    raw.info['bads'] += [ch for ch in get_bads(rawf) if
+                         ch not in raw.info['bads']]
+    return raw
+
+
+def get_info(rawf):
+    return get_raw(rawf).info
+
+
 def get_bads(rawf):
     badsf = derivative_fname(rawf, 'data', 'bad_channels', 'tsv')
     if op.isfile(badsf):
@@ -53,9 +64,7 @@ def get_aux_epochs(ica, raw):
 
 
 def apply_ica(rawf):
-    raw = read_raw(rawf.path)
-    raw.info['bads'] += [ch for ch in get_bads(rawf) if
-                         ch not in raw.info['bads']]
+    raw = get_raw(rawf)
     ica = get_ica(rawf)
     components = get_ica_components(rawf)
     raw.load_data()

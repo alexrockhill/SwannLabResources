@@ -2,12 +2,82 @@ import numpy as np
 
 from pandas import DataFrame, read_csv
 
-from swann.utils import derivative_fname, pick_data, check_overwrite_or_return
+from swann.utils import (get_config, derivative_fname, pick_data,
+                         check_overwrite_or_return, rolling_mean)
 
-from swann.preprocessing import apply_ica
+from swann.preprocessing import get_info
 
 from mne.time_frequency.tfr import cwt
 from mne.time_frequency import morlet
+
+
+def get_bursts(events, method, rolling=0.25):
+    ''' Threshold a signal to find bursts.
+    Parameters
+    ----------
+    events : dict(str=dict(str=np.array(n_events, 3)))
+        A dict with keys that are name and secondary keys that are rawf
+        paths and values that are events from mne.events_from_annotations or
+        mne.find_events; e.g. {'All': {'sub-1...': events}}.
+    method : ('peaks', 'all', 'durations')
+        Plot only the peak values (`peaks`) of beta bursts or plot all
+        time values (`all`) during which a beta burst is occuring.
+    Returns
+    -------
+    times : np.array float
+        The times over which the bursts are considered
+    beta_data : dict
+        The dictionary with keys for channel and values of the bursts
+        calculated by the given method
+    rolling : float
+        Amount of time to using for the rolling average (default 250 ms)
+        Note: this is ignored for durations
+    '''
+    config = get_config()
+    tmin, tmax = config['tmin'], config['tmax']
+    burst_data = {name: {rawf.path: dict() for rawf in events[name]}
+                  for name in events}
+    for name in events:
+        for rawf, these_events in events[name].items():
+            bursts = find_bursts(rawf, return_saved=True)
+            info = get_info(rawf)
+            bin_indices = range(int(info['sfreq'] * tmin),
+                                int(info['sfreq'] * tmax))
+            times = np.linspace(tmin, tmax, len(bin_indices))
+            burst_data[name][rawf.path] = \
+                (times, {ch: _get_bursts(bursts[bursts['channel'] == ch],
+                                         these_events, bin_indices, method,
+                                         info['sfreq']) for ch in
+                         info['ch_names']})
+    return burst_data
+
+
+def _get_bursts(bursts, events, bin_indices, method, sfreq, rolling):
+    if method == 'all':
+        burst_indices = set([i for start, stop in
+                             zip(bursts['burst_start'],
+                                 bursts['burst_end'])
+                             for i in range(start, stop)])
+    elif method == 'peaks':
+        burst_indices = set(bursts['burst_peak'])
+    elif method == 'durations':
+        event_indices = set([i for e in events[:, 0]
+                             for i in bin_indices + e])
+        durations = [(stop - start) / sfreq for start, stop in
+                     zip(bursts['burst_start'], bursts['burst_end'])
+                     if start in event_indices or stop in event_indices]
+        return durations
+    else:
+        raise ValueError('Method of calculating bursts %s ' % method +
+                         'not recognized.')
+    bins = np.zeros((len(bin_indices)))
+    for i, event_index in enumerate(events[:, 0]):
+        for j, offset in enumerate(bin_indices):
+            if event_index - offset in burst_indices:
+                bins[j] += 1
+    bins /= len(events)
+    bins = rolling_mean(bins, n=int(sfreq * rolling))
+    return bins
 
 
 def find_bursts(bf, signal=None, ch_names=None, thresh=6, return_saved=False,
@@ -67,14 +137,16 @@ def find_bursts(bf, signal=None, ch_names=None, thresh=6, return_saved=False,
     return df
 
 
-def decompose_tfr(rawf, name='beta', lfreq=15, hfreq=29, dfreq=1, n_cycles=7,
-                  use_fft=True, mode='same', return_saved=False,
+def decompose_tfr(rawf, raw, name='beta', lfreq=15, hfreq=29, dfreq=1,
+                  n_cycles=7, use_fft=True, mode='same', return_saved=False,
                   verbose=True, overwrite=False):
     ''' Compute a time frequency decomposition (default beta).
     Parameters
     ----------
     rawf : BIDSDataFile
         The ephys data file from the pybids layout object.
+    raw : mne.io.Raw
+        The raw object.
     name : str
         The name of the frequencies (e.g. beta)
     event : str
@@ -104,7 +176,6 @@ def decompose_tfr(rawf, name='beta', lfreq=15, hfreq=29, dfreq=1, n_cycles=7,
         f = np.load(tfrf)
         return f['tfr'], f['ch_names'], f['sfreq'].item()
     freqs = np.arange(lfreq, hfreq + dfreq, dfreq)
-    raw = apply_ica(rawf)
     raw = pick_data(raw)
     raw_data = raw.get_data()
     tfr = np.zeros(raw_data.shape)

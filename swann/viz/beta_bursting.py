@@ -6,8 +6,9 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import BASE_COLORS
 from scipy.stats import ttest_ind
 
-from swann.utils import get_config, derivative_fname, rolling_mean
-from swann.analyses import decompose_tfr, find_bursts
+from swann.preprocessing import get_info
+from swann.utils import get_config, derivative_fname
+from swann.analyses import decompose_tfr, find_bursts, get_bursts
 
 from mne.viz import iter_topography
 from mne.time_frequency import tfr_morlet
@@ -116,7 +117,7 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
         plt.close(fig)
 
 
-def plot_group_bursting(rawfs, event, events, infos, tfr_name='beta',
+def plot_group_bursting(rawfs, event, events, tfr_name='beta',
                         picks=None, method='peaks', ylim=None, rolling=0.25,
                         verbose=True, overwrite=False):
     ''' Plots bursts on topography or in graph overlayed.
@@ -132,8 +133,6 @@ def plot_group_bursting(rawfs, event, events, infos, tfr_name='beta',
         mne.find_events; e.g. {'All': {'sub-1...': events}}.
     tfr_name : str
         What to call the frequencies used e.g. beta
-    info : mne.io.Raw.info
-        The info for topographic plotting
     picks : list(str) | None
         If None, all the channels will be plotted on the topo. If channels are
         given, they will be overlayed on one plot.
@@ -146,12 +145,12 @@ def plot_group_bursting(rawfs, event, events, infos, tfr_name='beta',
     rolling : float
         Amount of time to using for the rolling average (default 250 ms)
     '''
-    if infos is None and picks is None:
-        raise ValueError('`infos` and `picks` are none, if no picks are ' +
-                         'specified, infos are needed for topo plotting.')
     config = get_config()
+    events = (events if isinstance(events[list(events.keys())[0]], dict) else
+              {None: events})
     picks_str = ('' if picks is None else 'channels_' + '_and_'.join(picks))
-    names_str = '_and_'.join(events.keys())
+    names_str = (None if list(events.keys())[0] is None else
+                 '_and_'.join(events.keys()))
     basename = '%s_%s_bursting_%s_%s_%s.%s' % (names_str, tfr_name, method,
                                                event, picks_str, config['fig'])
     plotf = op.join(config['bids_dir'],
@@ -162,24 +161,17 @@ def plot_group_bursting(rawfs, event, events, infos, tfr_name='beta',
         print('Group %s bursting plot for %s ' % (tfr_name.title(), event) +
               'already exists, use `overwrite=True` to replot')
         return
-    bursts = {rawf.path: find_bursts(rawf, return_saved=True)
-              for rawf in rawfs}
-    info_max_idx = np.argmax([len(info['ch_names']) for info in infos])
-    info = infos[info_max_idx]
-    ch_names = info['ch_names'] if picks is None else picks
-    times, bin_indices = _bin_indices_and_times(info)
-    fig = _plot_bursting(ch_names, bursts, event, events, tfr_name, info,
-                         picks, method, ylim, rolling, group=True,
-                         verbose=verbose)
-    fig.set_size_inches(10, 12)
-    fig.suptitle('%s Trials ' % names_str.replace('_', ' ') +
+    burst_data = get_bursts(events, method, rolling)
+    fig = _plot_bursting(burst_data, picks, method, ylim, rolling, verbose)
+    fig.suptitle('' if names_str is None else '%s Trials ' %
+                 names_str.replace('_', ' ') +
                  '%s Bursting ' % tfr_name +
                  'for the %s Event from ' % event +
                  '%s to %s Seconds' % (config['tmin'], config['tmax']))
     fig.savefig(plotf)
 
 
-def plot_bursting(rawf, event, events, info, tfr_name='beta',
+def plot_bursting(rawf, event, events, tfr_name='beta',
                   picks=None, method='peaks', ylim=None, rolling=0.25,
                   verbose=True, overwrite=False):
     ''' Plots bursts on topography or in graph overlayed.
@@ -189,14 +181,12 @@ def plot_bursting(rawf, event, events, info, tfr_name='beta',
         The object containing the raw data.
     event : str
         The name of the event (e.g. `Response`).
-    events : dict(str=np.array(n_events, 3))
+    events : np.array(n_events, 3) or dict(str=np.array(n_events, 3))
         A dict with values that are events from mne.events_from_annotations or
         mne.find_events corresponding to the event and trials that are
         described by the names which are the keys (e.g. `Slow` or `All`).
     tfr_name : str
         What to call the frequencies used e.g. beta
-    info : mne.io.Raw.info
-        The info for topographic plotting
     picks : list(str) | None
         If None, all the channels will be plotted on the topo. If channels are
         given, they will be overlayed on one plot.
@@ -209,12 +199,12 @@ def plot_bursting(rawf, event, events, info, tfr_name='beta',
     rolling : float
         Amount of time to using for the rolling average (default 250 ms)
     '''
-    if info is None and picks is None:
-        raise ValueError('`info` and `picks` are none, if no picks are ' +
-                         'specified, info is needed for topo plotting.')
     config = get_config()
+    events = ({rawf.path: events} if isinstance(events, dict) else
+              {None: {rawf.path: events}})
     picks_str = ('' if picks is None else 'channels_' + '_and_'.join(picks))
-    names_str = '_and_'.join(events.keys())
+    names_str = (None if list(events.keys())[0] is None else
+                 '_and_'.join(events.keys()))
     basename = '%s_%s_bursting_%s_%s_%s.%s' % (names_str, tfr_name, method,
                                                event, picks_str, config['fig'])
     plotf = derivative_fname(rawf, 'plots/%s_bursting' % tfr_name,
@@ -223,42 +213,31 @@ def plot_bursting(rawf, event, events, info, tfr_name='beta',
         print('%s bursting plot for %s ' % (tfr_name.title(), event) +
               'already exists, use `overwrite=True` to replot')
         return
-    ch_names = info['ch_names'] if picks is None else picks
-    events = events if isinstance(events, dict) else {None: events}
-    bursts = find_bursts(rawf, return_saved=True)
-    fig = _plot_bursting(ch_names, bursts, event, events, tfr_name, info,
-                         picks, method, ylim, rolling, group=False,
-                         verbose=verbose)
-    fig.set_size_inches(10, 12)
-    fig.suptitle('%s Trials ' % names_str.replace('_', ' ') +
+    burst_data = get_bursts(events, method, rolling)
+    fig = _plot_bursting(burst_data, picks, method, ylim, rolling, verbose)
+    fig.suptitle('' if names_str is None else '%s Trials ' %
+                 names_str.replace('_', ' ') +
                  '%s Bursting ' % tfr_name +
                  'for the %s Event from ' % event +
                  '%s to %s Seconds' % (config['tmin'], config['tmax']))
     fig.savefig(plotf)
 
 
-def _plot_bursting(ch_names, bursts, event, events, tfr_name, info,
-                   picks, method, ylim, rolling, group, verbose):
-    bin_indices, times = _bin_indices_and_times(info)
-    plot_data = {ch_name: {name: dict() for name in events}
-                 for ch_name in ch_names}
-    for idx, ch_name in enumerate(ch_names):
-        for name, these_events in events.items():
-            plot_data[ch_name][name] = _get_burst_plot_data(
-                ch_name, these_events, bursts, info, bin_indices,
-                method, group)
-
+def _plot_bursting(burst_data, picks, method, ylim, rolling, verbose):
     if picks is None:
+        infos = [get_info(rawf) for name in burst_data for
+                 rawf in burst_data[name]]
+        info_max_idx = np.argmax([len(info['ch_names']) for info in infos])
+        info = infos[info_max_idx]
         for ax, idx in iter_topography(info, fig_facecolor='white',
                                        axis_facecolor='white',
                                        axis_spinecolor='white'):
-            _plot_burst_data(plot_data, [ch_names[idx]], events, times,
-                             info['sfreq'], method, ylim, rolling, ax, verbose)
+            _plot_burst_data(burst_data, method, ylim, rolling, ax, verbose,
+                             ch_name=info['ch_names'][idx])
         fig = plt.gcf()
     else:
         fig, ax = plt.subplots()
-        _plot_burst_data(plot_data, ch_names, events, times, info['sfreq'],
-                         method, ylim, rolling, ax, verbose)
+        _plot_burst_data(burst_data, method, ylim, rolling, ax, verbose)
         if method in ('all', 'peaks'):
             ax.set_ylabel('Percent of Trials')
             ax.set_xlabel('Time (s)')
@@ -266,33 +245,48 @@ def _plot_bursting(ch_names, bursts, event, events, tfr_name, info,
             ax.set_ylabel('Duration (s)')
         else:
             raise ValueError('Unrecognized method %s' % method)
+    fig.set_size_inches(10, 12)
     return fig
 
 
-def _plot_burst_data(plot_data, ch_names, events, times, sfreq,
-                     method, ylim, rolling, ax, verbose):
+def _plot_burst_data(plot_data, method, ylim, rolling, ax, verbose,
+                     ch_name=None):
     if method in ('all', 'peaks'):
-        for ch_name in ch_names:
-            for name, these_events in events.items():
-                label = ch_name if name is None else name + ' ' + ch_name
-                ax.plot(times, rolling_mean(plot_data[ch_name][name],
-                                            n=int(sfreq * rolling)),
-                        label=label)
+        for name in plot_data:
+            bins = dict()
+            times = None
+            for rawf in plot_data[name]:
+                for ch in plot_data[name][rawf]:
+                    these_times, these_bins = plot_data[name][rawf][ch]
+                    if times is not None and any(these_times != times):
+                        raise ValueError('Times are not all the same ' +
+                                         'for group averaging')
+                    if ch in bins:
+                        bins[ch].append(these_bins)
+                    else:
+                        bins[ch] = [these_bins]
+                for ch in plot_data[name][rawf]:
+                    if ch_name is not None and ch != ch_name:
+                        continue
+                    these_bins = np.mean(bins[ch])
+                    label = ch if name is None else name + '_' + ch
+                    ax.plot(times, these_bins, label=label)
         if ylim is None:
             ax.set_ylim([0, ylim])
     elif method in ('durations',):
         all_durations = list()
         labels = list()
-        for ch_name in ch_names:
-            for name, these_events in events.items():
-                all_durations.append(plot_data[ch_name][name])
-                labels.append(ch_name if name is None else name +
-                              ' ' + ch_name)
-        colors = [list(BASE_COLORS)[i % len(BASE_COLORS)]
-                  for i in range(len(all_durations))]
+        colors = list()
+        for name in plot_data:
+            for rawf in plot_data[name]:
+                for ch_idx, ch in enumerate(plot_data[name][rawf]):
+                    times, durations = plot_data[ch_name][name][ch]
+                    all_durations.append(durations)
+                    labels.append(ch if name is None else name + ' ' + ch)
+                    colors.append(list(BASE_COLORS)[ch_idx % len(BASE_COLORS)])
         ax.bar(range(len(all_durations)),
-               [np.mean(durations) for durations in all_durations],
-               yerr=[np.std(durations) for durations in all_durations],
+               [np.mean(ds) for ds in all_durations],
+               yerr=[np.std(ds) for ds in all_durations],
                color=colors, alpha=0.5)
         for i, durations in enumerate(all_durations):
             ax.scatter(np.repeat(i, len(durations)), durations,
@@ -313,73 +307,6 @@ def _plot_burst_data(plot_data, ch_names, events, times, sfreq,
         ax.set_xticklabels(labels)
     else:
         raise ValueError('Unrecognized method %s' % method)
-
-
-def _get_burst_plot_data(ch_name, these_events, bursts, info,
-                         bin_indices, method, group):
-    if group:
-        if method in ('all', 'peaks'):
-            bins = np.zeros((len(bin_indices)))
-            for rawf in bursts:
-                bins += _calc_burst_data(
-                    bin_indices, these_events[rawf],
-                    info['sfreq'], bursts[rawf][
-                        bursts[rawf]['channel'] == ch_name],
-                    method)
-            bins /= len(bursts)
-            return bins
-        elif method in ('durations',):
-            durations = list()
-            for rawf in bursts:
-                durations += _calc_burst_data(
-                    bin_indices, these_events[rawf],
-                    info['sfreq'], bursts[rawf][
-                        bursts[rawf]['channel'] == ch_name],
-                    method)
-            return durations
-        else:
-            raise ValueError('Unrecognized method %s' % method)
-    else:
-        return _calc_burst_data(bin_indices, these_events,
-                                info['sfreq'],
-                                bursts[bursts['channel'] == ch_name], method)
-
-
-def _bin_indices_and_times(info):
-    config = get_config()
-    sfreq = info['sfreq']
-    tmin, tmax = config['tmin'], config['tmax']
-    bin_indices = range(int(sfreq * tmin), int(sfreq * tmax))
-    times = np.linspace(tmin, tmax, len(bin_indices))
-    return bin_indices, times
-
-
-def _calc_burst_data(bin_indices, events, sfreq, my_bursts,
-                     method, verbose=True):
-    if method == 'all':
-        burst_indices = set([i for start, stop in
-                             zip(my_bursts['burst_start'],
-                                 my_bursts['burst_end'])
-                             for i in range(start, stop)])
-    elif method == 'peaks':
-        burst_indices = set(my_bursts['burst_peak'])
-    elif method == 'durations':
-        event_indices = set([i for e in events[:, 0]
-                             for i in bin_indices + e])
-        durations = [(stop - start) / sfreq for start, stop in
-                     zip(my_bursts['burst_start'], my_bursts['burst_end'])
-                     if start in event_indices or stop in event_indices]
-        return durations
-    else:
-        raise ValueError('Method of calculating bursts %s ' % method +
-                         'not recognized.')
-    bins = np.zeros((len(bin_indices)))
-    for i, event_index in enumerate(events[:, 0]):
-        for j, offset in enumerate(bin_indices):
-            if event_index - offset in burst_indices:
-                bins[j] += 1
-    bins /= len(events)
-    return bins
 
 
 def plot_group_power(rawf, name, event, events, infos, picks=None,
