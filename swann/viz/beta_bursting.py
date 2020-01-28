@@ -163,10 +163,10 @@ def plot_group_bursting(rawfs, event, events, tfr_name='beta',
         return
     burst_data = dict()
     for name in events:
+        burst_data[name] = dict()
         for rawf in rawfs:
             burst_data[name][rawf.path] = \
-                get_bursts(rawf, events[name][rawf.path],
-                           method, rolling)
+                get_bursts(rawf, events[name][rawf.path], method, rolling)
     fig = _plot_bursting(burst_data, picks, method, ylim, rolling, verbose)
     fig.suptitle('' if names_str is None else '%s Trials ' %
                  names_str.replace('_', ' ') +
