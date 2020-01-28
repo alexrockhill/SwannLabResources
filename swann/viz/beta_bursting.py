@@ -161,12 +161,12 @@ def plot_group_bursting(rawfs, event, events, tfr_name='beta',
         print('Group %s bursting plot for %s ' % (tfr_name.title(), event) +
               'already exists, use `overwrite=True` to replot')
         return
-    burst_data = {name: {rawf.path: dict() for rawf in rawfs}
-                  for name in events}
+    burst_data = dict()
     for name in events:
-        burst_data[name] = \
-            get_bursts(rawfs, [events[name][rawf.path] for rawf in rawfs],
-                       method, rolling)
+        for rawf in rawfs:
+            burst_data[name][rawf.path] = \
+                get_bursts(rawfs, [events[name][rawf.path] for rawf in rawfs],
+                           method, rolling)
     fig = _plot_bursting(burst_data, picks, method, ylim, rolling, verbose)
     fig.suptitle('' if names_str is None else '%s Trials ' %
                  names_str.replace('_', ' ') +
@@ -215,9 +215,10 @@ def plot_bursting(rawf, event, events, tfr_name='beta',
         print('%s bursting plot for %s ' % (tfr_name.title(), event) +
               'already exists, use `overwrite=True` to replot')
         return
-    burst_data = {name: {rawf.path: dict()} for name in events}
+    burst_data = dict()
     for name in events:
-        burst_data[name] = get_bursts(rawf, events[name], method, rolling)
+        burst_data[name] = {rawf.path: get_bursts(rawf, events[name],
+                                                  method, rolling)}
     fig = _plot_bursting(burst_data, picks, method, ylim, rolling, verbose)
     fig.suptitle('' if names_str is None else '%s Trials ' %
                  names_str.replace('_', ' ') +
@@ -259,8 +260,8 @@ def _plot_burst_data(plot_data, ch_names, method, ylim, rolling, ax, verbose):
         for name in plot_data:
             for ch in ch_names:
                 bins = list()
-                for rawf in plot_data[name][ch]:
-                    these_times, these_bins = plot_data[name][ch][rawf]
+                for rawf in plot_data[name]:
+                    these_times, these_bins = plot_data[name][rawf][ch]
                     if times is not None and any(these_times != times):
                         raise ValueError('Times are not all the same ' +
                                          'for group averaging')

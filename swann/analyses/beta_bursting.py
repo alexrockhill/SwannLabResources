@@ -11,13 +11,13 @@ from mne.time_frequency.tfr import cwt
 from mne.time_frequency import morlet
 
 
-def get_bursts(rawfs, events, method, rolling=0.25):
+def get_bursts(rawf, events, method, rolling=0.25):
     ''' Threshold a signal to find bursts.
     Parameters
     ----------
-    rawfs : list of pybids.BIDSlayout object
+    rawfs : pybids.BIDSlayout object
         The object pointing to the data file
-    events : list of np.array(n_events, 3)
+    events : np.array(n_events, 3)
         Events from mne.events_from_annotations or mne.find_events.
     method : ('peaks', 'all', 'durations', 'shape')
         Plot only the peak values (`peaks`) of beta bursts or plot all
@@ -33,56 +33,44 @@ def get_bursts(rawfs, events, method, rolling=0.25):
         Amount of time to using for the rolling average (default 250 ms)
         Note: this is ignored for durations
     '''
-    if not isinstance(rawfs, list):
-        rawfs = [rawfs]
-    if not isinstance(events, list):
-        events = [events]
     config = get_config()
     tmin, tmax = config['tmin'], config['tmax']
     burst_data = dict()
-    for rawf, these_events in zip(rawfs, events):
-        bursts = find_bursts(rawf, return_saved=True)
-        info = get_info(rawf)
-        bin_indices = range(int(info['sfreq'] * tmin),
-                            int(info['sfreq'] * tmax))
-        times = np.linspace(tmin, tmax, len(bin_indices))
-        for ch in info['ch_names']:
-            this_burst_data = \
-                _get_bursts(bursts[bursts['channel'] == ch], these_events,
-                            bin_indices, method, info['sfreq'], rolling)
-            if ch in burst_data:
-                burst_data[ch][rawf.path] = (times, this_burst_data)
-            else:
-                burst_data[ch] = {rawf.path: (times, this_burst_data)}
+    bursts = find_bursts(rawf, return_saved=True)
+    info = get_info(rawf)
+    sfreq = info['sfreq']
+    bin_indices = range(int(info['sfreq'] * tmin),
+                        int(info['sfreq'] * tmax))
+    times = np.linspace(tmin, tmax, len(bin_indices))
+    for ch in info['ch_names']:
+        these_bursts = bursts[bursts['channel'] == ch]
+        if method == 'all':
+            burst_indices = set([i for start, stop in
+                                 zip(these_bursts['burst_start'],
+                                     these_bursts['burst_end'])
+                                 for i in range(start, stop)])
+        elif method == 'peaks':
+            burst_indices = set(these_bursts['burst_peak'])
+        elif method == 'durations':
+            event_indices = set([i for e in events[:, 0]
+                                 for i in bin_indices + e])
+            durations = [(stop - start) / sfreq for start, stop in
+                         zip(these_bursts['burst_start'],
+                             these_bursts['burst_end'])
+                         if start in event_indices or stop in event_indices]
+            burst_data[ch] = durations
+        else:
+            raise ValueError('Method of calculating bursts %s ' % method +
+                             'not recognized.')
+        bins = np.zeros((len(bin_indices)))
+        for i, event_index in enumerate(events[:, 0]):
+            for j, offset in enumerate(bin_indices):
+                if event_index - offset in burst_indices:
+                    bins[j] += 1
+        bins /= len(events)
+        bins = rolling_mean(bins, n=int(sfreq * rolling))
+        burst_data[ch] = (times, bins)
     return burst_data
-
-
-def _get_bursts(bursts, events, bin_indices, method, sfreq, rolling):
-    if method == 'all':
-        burst_indices = set([i for start, stop in
-                             zip(bursts['burst_start'],
-                                 bursts['burst_end'])
-                             for i in range(start, stop)])
-    elif method == 'peaks':
-        burst_indices = set(bursts['burst_peak'])
-    elif method == 'durations':
-        event_indices = set([i for e in events[:, 0]
-                             for i in bin_indices + e])
-        durations = [(stop - start) / sfreq for start, stop in
-                     zip(bursts['burst_start'], bursts['burst_end'])
-                     if start in event_indices or stop in event_indices]
-        return durations
-    else:
-        raise ValueError('Method of calculating bursts %s ' % method +
-                         'not recognized.')
-    bins = np.zeros((len(bin_indices)))
-    for i, event_index in enumerate(events[:, 0]):
-        for j, offset in enumerate(bin_indices):
-            if event_index - offset in burst_indices:
-                bins[j] += 1
-    bins /= len(events)
-    bins = rolling_mean(bins, n=int(sfreq * rolling))
-    return bins
 
 
 def find_bursts(bf, signal=None, ch_names=None, thresh=6, return_saved=False,
