@@ -271,7 +271,9 @@ def _plot_burst_data(plot_data, ch_names, method, ylim, rolling, ax, verbose):
                 bins_mean = np.mean(bins, axis=0)
                 bins_std = np.std(bins, axis=0)
                 ax.plot(times, bins_mean, label=label)
-                ax.fill_between(times, bins_mean - bins_std,
+                ax.fill_between(times, np.max([bins_mean - bins_std,
+                                               np.zeros(bins_mean.shape)],
+                                              axis=0),
                                 bins_mean + bins_std, alpha=0.1)
         if ylim is None:
             ax.set_ylim([0, ylim])
