@@ -161,7 +161,12 @@ def plot_group_bursting(rawfs, event, events, tfr_name='beta',
         print('Group %s bursting plot for %s ' % (tfr_name.title(), event) +
               'already exists, use `overwrite=True` to replot')
         return
-    burst_data = get_bursts(events, method, rolling)
+    burst_data = {name: {rawf.path: dict() for rawf in rawfs}
+                  for name in events}
+    for name in events:
+        burst_data[name] = \
+            get_bursts(rawfs, [events[name][rawf.path] for rawf in rawfs],
+                       method, rolling)
     fig = _plot_bursting(burst_data, picks, method, ylim, rolling, verbose)
     fig.suptitle('' if names_str is None else '%s Trials ' %
                  names_str.replace('_', ' ') +
@@ -181,7 +186,7 @@ def plot_bursting(rawf, event, events, tfr_name='beta',
         The object containing the raw data.
     event : str
         The name of the event (e.g. `Response`).
-    events : np.array(n_events, 3) or dict(str=np.array(n_events, 3))
+    events : dict(str=np.array(n_events, 3))
         A dict with values that are events from mne.events_from_annotations or
         mne.find_events corresponding to the event and trials that are
         described by the names which are the keys (e.g. `Slow` or `All`).
@@ -200,11 +205,8 @@ def plot_bursting(rawf, event, events, tfr_name='beta',
         Amount of time to using for the rolling average (default 250 ms)
     '''
     config = get_config()
-    events = ({rawf.path: events} if isinstance(events, dict) else
-              {None: {rawf.path: events}})
     picks_str = ('' if picks is None else 'channels_' + '_and_'.join(picks))
-    names_str = (None if list(events.keys())[0] is None else
-                 '_and_'.join(events.keys()))
+    names_str = '_and_'.join(events.keys())
     basename = '%s_%s_bursting_%s_%s_%s.%s' % (names_str, tfr_name, method,
                                                event, picks_str, config['fig'])
     plotf = derivative_fname(rawf, 'plots/%s_bursting' % tfr_name,
@@ -213,7 +215,9 @@ def plot_bursting(rawf, event, events, tfr_name='beta',
         print('%s bursting plot for %s ' % (tfr_name.title(), event) +
               'already exists, use `overwrite=True` to replot')
         return
-    burst_data = get_bursts(events, method, rolling)
+    burst_data = {name: {rawf.path: dict()} for name in events}
+    for name in events:
+        burst_data[name] = get_bursts(rawf, events[name], method, rolling)
     fig = _plot_bursting(burst_data, picks, method, ylim, rolling, verbose)
     fig.suptitle('' if names_str is None else '%s Trials ' %
                  names_str.replace('_', ' ') +
@@ -232,12 +236,12 @@ def _plot_bursting(burst_data, picks, method, ylim, rolling, verbose):
         for ax, idx in iter_topography(info, fig_facecolor='white',
                                        axis_facecolor='white',
                                        axis_spinecolor='white'):
-            _plot_burst_data(burst_data, method, ylim, rolling, ax, verbose,
-                             ch_name=info['ch_names'][idx])
+            _plot_burst_data(burst_data, [info['ch_names'][idx]],
+                             method, ylim, rolling, ax, verbose)
         fig = plt.gcf()
     else:
         fig, ax = plt.subplots()
-        _plot_burst_data(burst_data, method, ylim, rolling, ax, verbose)
+        _plot_burst_data(burst_data, picks, method, ylim, rolling, ax, verbose)
         if method in ('all', 'peaks'):
             ax.set_ylabel('Percent of Trials')
             ax.set_xlabel('Time (s)')
@@ -249,12 +253,11 @@ def _plot_bursting(burst_data, picks, method, ylim, rolling, verbose):
     return fig
 
 
-def _plot_burst_data(plot_data, method, ylim, rolling, ax, verbose,
-                     ch_name=None):
+def _plot_burst_data(plot_data, ch_names, method, ylim, rolling, ax, verbose):
     if method in ('all', 'peaks'):
         times = None
         for name in plot_data:
-            for ch in plot_data[name]:
+            for ch in ch_names:
                 bins = list()
                 for rawf in plot_data[name][ch]:
                     these_times, these_bins = plot_data[name][ch][rawf]
@@ -264,7 +267,11 @@ def _plot_burst_data(plot_data, method, ylim, rolling, ax, verbose,
                     times = these_times
                     bins.append(these_bins)
                 label = ch if name is None else name + '_' + ch
-                ax.plot(times, np.mean(these_bins, axis=1), label=label)
+                bins_mean = np.mean(bins, axis=0)
+                bins_std = np.std(bins, axis=0)
+                ax.plot(times, bins_mean, label=label)
+                ax.fill_between(times, bins_mean - bins_std,
+                                bins_mean + bins_std, alpha=0.1)
         if ylim is None:
             ax.set_ylim([0, ylim])
     elif method in ('durations',):
@@ -272,7 +279,7 @@ def _plot_burst_data(plot_data, method, ylim, rolling, ax, verbose,
         labels = list()
         colors = list()
         for name in plot_data:
-            for ch_idx, ch in enumerate(plot_data[name]):
+            for ch_idx, ch in enumerate(ch_names):
                 for rawf in plot_data[name][ch]:
                     times, durations = plot_data[name][ch][rawf]
                     all_durations.append(durations)
@@ -286,12 +293,12 @@ def _plot_burst_data(plot_data, method, ylim, rolling, ax, verbose,
             ax.scatter(np.repeat(i, len(durations)), durations,
                        color=colors[i], alpha=0.1)
         ax.set_xticks(range(len(all_durations)))
-        '''
         for i, durations0 in enumerate(all_durations):
             for j, durations1 in enumerate(all_durations[i + 1:]):
                 t, p = ttest_ind(durations0, durations1)
                 if verbose:
                     print('%s-%s: p = %s' % (labels[i], labels[i + j + 1], p))
+                '''
                 if p < 0.05:
                     y = (max([max(durations0), max(durations1)]) + 0.01) * 1.1
                     ax.axhline(y=y, xmin=(i + 0.5) / len(all_durations),
@@ -299,7 +306,7 @@ def _plot_burst_data(plot_data, method, ylim, rolling, ax, verbose,
                                color='k')
                     ax.text(np.mean([i, i + j + 1]) - 0.5, (y + 0.01) * 1.05,
                             'p = %.3f' % p if p > 0.001 else 'p < 0.001')
-        '''
+                '''
         ax.set_xticklabels(labels)
     else:
         raise ValueError('Unrecognized method %s' % method)

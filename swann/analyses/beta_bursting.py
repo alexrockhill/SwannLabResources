@@ -11,14 +11,14 @@ from mne.time_frequency.tfr import cwt
 from mne.time_frequency import morlet
 
 
-def get_bursts(events, method, rolling=0.25):
+def get_bursts(rawfs, events, method, rolling=0.25):
     ''' Threshold a signal to find bursts.
     Parameters
     ----------
-    events : dict(str=dict(str=np.array(n_events, 3)))
-        A dict with keys that are name and secondary keys that are rawf
-        paths and values that are events from mne.events_from_annotations or
-        mne.find_events; e.g. {'All': {'sub-1...': events}}.
+    rawfs : list of pybids.BIDSlayout object
+        The object pointing to the data file
+    events : list of np.array(n_events, 3)
+        Events from mne.events_from_annotations or mne.find_events.
     method : ('peaks', 'all', 'durations', 'shape')
         Plot only the peak values (`peaks`) of beta bursts or plot all
         time values (`all`) during which a beta burst is occuring.
@@ -33,25 +33,29 @@ def get_bursts(events, method, rolling=0.25):
         Amount of time to using for the rolling average (default 250 ms)
         Note: this is ignored for durations
     '''
+    if not isinstance(rawfs, list):
+        rawfs = [rawfs]
+    if not isinstance(events, list):
+        events = [events]
     config = get_config()
     tmin, tmax = config['tmin'], config['tmax']
-    burst_data = {name: {rawf.path: dict() for rawf in events[name]}
-                  for name in events}
-    for name in events:
-        for rawf, these_events in events[name].items():
-            bursts = find_bursts(rawf, return_saved=True)
-            info = get_info(rawf)
-            bin_indices = range(int(info['sfreq'] * tmin),
-                                int(info['sfreq'] * tmax))
-            times = np.linspace(tmin, tmax, len(bin_indices))
-            for ch in info['ch_names']:
-                this_burst_data = \
-                    _get_bursts(bursts[bursts['channel'] == ch], these_events,
-                                bin_indices, method, info['sfreq'])
-            if ch in burst_data[name]:
-                burst_data[name][ch][rawf.path] = (times, this_burst_data)
+    burst_data = dict()
+    for rawf, these_events in zip(rawfs, events):
+        bursts = find_bursts(rawf, return_saved=True)
+        info = get_info(rawf)
+        bin_indices = range(int(info['sfreq'] * tmin),
+                            int(info['sfreq'] * tmax))
+        times = np.linspace(tmin, tmax, len(bin_indices))
+        for ch in info['ch_names']:
+            if ch not in bursts['channel']:
+                continue
+            this_burst_data = \
+                _get_bursts(bursts[bursts['channel'] == ch], these_events,
+                            bin_indices, method, info['sfreq'], rolling)
+            if ch in burst_data:
+                burst_data[ch][rawf.path] = (times, this_burst_data)
             else:
-                burst_data[name][ch] = {rawf.path: (times, this_burst_data)}
+                burst_data[ch] = {rawf.path: (times, this_burst_data)}
     return burst_data
 
 
