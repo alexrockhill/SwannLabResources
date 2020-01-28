@@ -47,8 +47,6 @@ def get_bursts(rawfs, events, method, rolling=0.25):
                             int(info['sfreq'] * tmax))
         times = np.linspace(tmin, tmax, len(bin_indices))
         for ch in info['ch_names']:
-            if ch not in bursts['channel']:
-                continue
             this_burst_data = \
                 _get_bursts(bursts[bursts['channel'] == ch], these_events,
                             bin_indices, method, info['sfreq'], rolling)
