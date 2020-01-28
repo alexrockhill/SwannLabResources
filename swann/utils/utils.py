@@ -198,6 +198,8 @@ def get_events(raw, exclude_events=None):
     events, _ = mne.events_from_annotations(raw)
     if events.size == 0:
         events = mne.find_events(raw)
+    if 128 in events[:, 2]:  # weird but where biosemi can loop
+        events = events[7:]  # through trigger bits at the start of a file
     n_events = None
     for event in (list(config['stimuli'].keys()) +
                   list(config['feedback'].keys())):

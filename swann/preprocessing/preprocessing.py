@@ -99,7 +99,7 @@ def set_ica_components(rawf, components):
             f.write('%i\n' % component)
 
 
-def mark_autoreject(rawf, event, raw=None,
+def mark_autoreject(rawf, raw, event,
                     n_interpolates=[1, 2, 3, 5, 7, 10, 20],
                     consensus_percs=np.linspace(0, 1.0, 11),
                     return_saved=False, verbose=True, overwrite=False):

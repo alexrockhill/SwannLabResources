@@ -98,9 +98,13 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
                 if these_bursts.size > 0:
                     for burst_idx in these_bursts.index:
                         for start_stop in ['burst_start', 'burst_end']:
-                            axes[j].axvline(x=these_bursts.loc[burst_idx,
-                                                               start_stop] -
-                                            min_idx, color='green')
+                            if (max_idx > these_bursts.loc[burst_idx,
+                                                           start_stop] >
+                                    min_idx):
+                                axes[j].axvline(
+                                    x=these_bursts.loc[burst_idx,
+                                                       start_stop] - min_idx,
+                                    color='green')
         axes = axes.reshape(rows, columns)
         for col_idx in range(columns):
             axes[-1, col_idx].set_xlabel('Time (s)')
@@ -113,7 +117,7 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
         cax.set_label('Power')
         fig.suptitle('Time Frequency Decomposition for the %s ' % event +
                      'Event, Channel %s' % ch_name)
-        fig.savefig(this_plot_f)
+        fig.savefig(this_plot_f, dpi=300)
         plt.close(fig)
 
 
@@ -173,7 +177,7 @@ def plot_group_bursting(rawfs, event, events, tfr_name='beta',
                  '%s Bursting ' % tfr_name +
                  'for the %s Event from ' % event +
                  '%s to %s Seconds' % (config['tmin'], config['tmax']))
-    fig.savefig(plotf)
+    fig.savefig(plotf, dpi=300)
 
 
 def plot_bursting(rawf, event, events, tfr_name='beta',
@@ -225,7 +229,7 @@ def plot_bursting(rawf, event, events, tfr_name='beta',
                  '%s Bursting ' % tfr_name +
                  'for the %s Event from ' % event +
                  '%s to %s Seconds' % (config['tmin'], config['tmax']))
-    fig.savefig(plotf)
+    fig.savefig(plotf, dpi=300)
 
 
 def _plot_bursting(burst_data, picks, method, ylim, rolling, verbose):
@@ -375,7 +379,7 @@ def plot_group_power(rawf, name, event, events, infos, picks=None,
                   'the %s Event from ' % event +
                   '%s to %s Seconds' % (config['tmin'], config['tmax'])
                   ).title())
-    fig.savefig(plotf)
+    fig.savefig(plotf, dpi=300)
 
 
 def plot_power(rawf, event, events, info, picks=None,
@@ -435,7 +439,7 @@ def plot_power(rawf, event, events, info, picks=None,
                   'the %s Event from ' % event +
                   '%s to %s Seconds' % (config['tmin'], config['tmax'])
                   ).title())
-    fig.savefig(plotf)
+    fig.savefig(plotf, dpi=300)
 
 
 def _plot_power(ch_name, events, sfreq,
@@ -514,7 +518,7 @@ def plot_burst_shape(rawf, name, event, info, events, tfr_name='beta',
     fig.set_size_inches(10, 12)
     fig.suptitle('%s Trials Beta Burst Shape for ' % name +
                  'the %s Event' % event)
-    fig.savefig(plotf)
+    fig.savefig(plotf, dpi=300)
 
 
 def _plot_beta_shape(ch_name, events, sfreq, my_beta_bursts,
