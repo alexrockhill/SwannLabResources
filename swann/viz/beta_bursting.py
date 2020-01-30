@@ -122,7 +122,7 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
 
 
 def plot_group_bursting(rawfs, event, events, tfr_name='beta',
-                        picks=None, method='peaks', ylim=None, rolling=0.25,
+                        picks=None, method='all', ylim=None, rolling=0.25,
                         verbose=True, overwrite=False):
     ''' Plots bursts on topography or in graph overlayed.
     Parameters
@@ -169,6 +169,8 @@ def plot_group_bursting(rawfs, event, events, tfr_name='beta',
     for name in events:
         burst_data[name] = dict()
         for rawf in rawfs:
+            if rawf.path not in events[name]:
+                continue
             burst_data[name][rawf.path] = \
                 get_bursts(rawf, events[name][rawf.path], method, rolling)
     fig = _plot_bursting(burst_data, picks, method, ylim, rolling, verbose)
@@ -181,7 +183,7 @@ def plot_group_bursting(rawfs, event, events, tfr_name='beta',
 
 
 def plot_bursting(rawf, event, events, tfr_name='beta',
-                  picks=None, method='peaks', ylim=None, rolling=0.25,
+                  picks=None, method='all', ylim=None, rolling=0.25,
                   verbose=True, overwrite=False):
     ''' Plots bursts on topography or in graph overlayed.
     Parameters
@@ -214,7 +216,7 @@ def plot_bursting(rawf, event, events, tfr_name='beta',
     basename = '%s_%s_bursting_%s_%s_%s.%s' % (names_str, tfr_name, method,
                                                event, picks_str, config['fig'])
     plotf = derivative_fname(rawf, 'plots/%s_bursting' % tfr_name,
-                             basename)
+                             basename, config['fig'])
     if op.isfile(plotf) and not overwrite:
         print('%s bursting plot for %s ' % (tfr_name.title(), event) +
               'already exists, use `overwrite=True` to replot')
@@ -242,7 +244,7 @@ def _plot_bursting(burst_data, picks, method, ylim, rolling, verbose):
                                        axis_facecolor='white',
                                        axis_spinecolor='white'):
             _plot_burst_data(burst_data, [info['ch_names'][idx]],
-                             method, ylim, rolling, ax, verbose)
+                    method, ylim, rolling, ax, verbose)
         fig = plt.gcf()
     else:
         fig, ax = plt.subplots()
@@ -254,6 +256,7 @@ def _plot_bursting(burst_data, picks, method, ylim, rolling, verbose):
             ax.set_ylabel('Duration (s)')
         else:
             raise ValueError('Unrecognized method %s' % method)
+        ax.legend()
     fig.set_size_inches(10, 12)
     return fig
 
@@ -403,9 +406,12 @@ def plot_power(rawf, event, events, info, picks=None,
         The keyword name of the tfr that was previously computed.
     '''
     config = get_config()
+    picks_str = ('' if picks is None else 'channels_' + '_and_'.join(picks))
+    names_str = '_and_'.join(events.keys())
+    basename = '%s_%s_power_%s_%s_%s.%s' % (names_str, tfr_name, method,
+                                            event, picks_str, config['fig'])
     plotf = derivative_fname(rawf, 'plots/%s_power' % tfr_name,
-                             '%s_%s_power_%s' % (name, tfr_name, event),
-                             config['fig'])
+                             basename, config['fig'])
     if op.isfile(plotf) and not overwrite:
         print('%s power plot already exist, ' % tfr_name.capitalize() +
               'use `overwrite=True` to replot')

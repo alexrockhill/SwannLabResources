@@ -59,6 +59,7 @@ def get_bursts(rawf, events, method, rolling=0.25):
                              these_bursts['burst_end'])
                          if start in event_indices or stop in event_indices]
             burst_data[ch] = durations
+            continue
         else:
             raise ValueError('Method of calculating bursts %s ' % method +
                              'not recognized.')
@@ -130,7 +131,7 @@ def find_bursts(bf, signal=None, ch_names=None, thresh=6, return_saved=False,
     return df
 
 
-def decompose_tfr(rawf, raw, name='beta', lfreq=15, hfreq=29, dfreq=1,
+def decompose_tfr(rawf, raw=None, name='beta', lfreq=15, hfreq=29, dfreq=1,
                   n_cycles=7, use_fft=True, mode='same', return_saved=False,
                   verbose=True, overwrite=False):
     ''' Compute a time frequency decomposition (default beta).

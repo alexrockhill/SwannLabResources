@@ -172,6 +172,10 @@ def read_raw(raw_path, preload=False):
         raw = mne.io.read_raw_edf(raw_path, preload=preload)
     elif ext == '.fif':
         raw = mne.io.Raw(raw_path, preload=preload)
+    elif ext in ('.eeg', '.vhdr'):
+        if ext == '.eeg':
+            raw_path = raw_path.replace('.eeg', '.vhdr')
+        raw = mne.io.read_raw_brainvision(raw_path, preload=preload)
     else:
         raise ValueError('Extention %s not yet implemented' % ext)
     for ch in ['GSR1', 'GSR2', 'Erg1', 'Erg2', 'Resp', 'Plet', 'Temp']:
@@ -181,14 +185,17 @@ def read_raw(raw_path, preload=False):
     raw.set_channel_types({ch: ch_type for ch_type, chs in
                            {'eog': eogs, 'ecg': ecgs, 'emg': emgs}.items()
                            for ch in chs})
-    aux = eogs + ecgs + emgs + ['Status']
+    # aux = eogs + ecgs + emgs + ['Status']
     # TO DO: implement read montage from sidecar data
     # for data with digitization
     if raw.info['dig'] is None:
-        montage = default_montage(raw)
-        raw.set_channel_types({ch: 'misc' for ch in raw.ch_names if
-                               ch not in montage.ch_names + aux})
-        raw.set_montage(montage)
+        try:
+            montage = default_montage(raw)
+            # raw.set_channel_types({ch: 'misc' for ch in raw.ch_names if
+            #                        ch not in montage.ch_names + aux})
+            raw.set_montage(montage)
+        except Exception as e:
+            print('Unable to find default montage', e)
     return raw
 
 

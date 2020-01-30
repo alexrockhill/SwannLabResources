@@ -99,7 +99,7 @@ def set_ica_components(rawf, components):
             f.write('%i\n' % component)
 
 
-def mark_autoreject(rawf, raw, event,
+def mark_autoreject(rawf, event, raw=None,
                     n_interpolates=[1, 2, 3, 5, 7, 10, 20],
                     consensus_percs=np.linspace(0, 1.0, 11),
                     return_saved=False, verbose=True, overwrite=False):
@@ -123,8 +123,7 @@ def mark_autoreject(rawf, raw, event,
                     random_state=config['seed'],
                     n_jobs=config['n_jobs'])
     epochs.load_data()
-    epochs_ar, reject_log = ar.fit_transform(epochs, return_log=True,
-                                             verbose=verbose)
+    epochs_ar, reject_log = ar.fit_transform(epochs, return_log=True)
     with open(autorejectf, 'w') as f:
         f.write('rejected_epochs\n')
         for i, rejected in enumerate(reject_log.bad_epochs):
