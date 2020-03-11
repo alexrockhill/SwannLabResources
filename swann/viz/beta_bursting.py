@@ -408,8 +408,8 @@ def plot_power(rawf, event, events, info, picks=None,
     config = get_config()
     picks_str = ('' if picks is None else 'channels_' + '_and_'.join(picks))
     names_str = '_and_'.join(events.keys())
-    basename = '%s_%s_power_%s_%s_%s.%s' % (names_str, tfr_name, method,
-                                            event, picks_str, config['fig'])
+    basename = '%s_%s_power_%s_%s.%s' % (names_str, tfr_name,
+                                         event, picks_str, config['fig'])
     plotf = derivative_fname(rawf, 'plots/%s_power' % tfr_name,
                              basename, config['fig'])
     if op.isfile(plotf) and not overwrite:
@@ -424,7 +424,7 @@ def plot_power(rawf, event, events, info, picks=None,
         raise ValueError('Raw channel names mismatch with tfr channel names')
     if verbose:
         print('Plotting %s power for ' % tfr_name.capitalize() +
-              '%s trials during the %s event' % (name, event))
+              '%s trials during the %s event' % (names_str, event))
     if picks is None:
         for ax, idx in iter_topography(info, fig_facecolor='white',
                                        axis_facecolor='white',
@@ -435,9 +435,11 @@ def plot_power(rawf, event, events, info, picks=None,
         pick_indices = [list(my_ch_names).index(ch) for ch in picks]
         tfr = tfr[pick_indices]
         fig, ax = plt.subplots()
-        for idx, ch_name in enumerate(picks):
-            _plot_power(ch_name, events, sfreq, tfr[idx],
-                        np.quantile(tfr, 0.9), ax=ax)
+        for name in events:
+            for idx, ch_name in enumerate(picks):
+                label = ch_name if name is None else name + ' ' + ch_name 
+                _plot_power(label, events[name], sfreq, tfr[idx],
+                            np.quantile(tfr, 0.9), ax=ax)
         ax.legend()
     fig = plt.gcf()
     fig.set_size_inches(10, 10)
@@ -448,14 +450,14 @@ def plot_power(rawf, event, events, info, picks=None,
     fig.savefig(plotf, dpi=300)
 
 
-def _plot_power(ch_name, events, sfreq,
+def _plot_power(name, events, sfreq,
                 tfr_ch, ylim, ax=None, verbose=True):
     config = get_config()
     tmin, tmax = config['tmin'], config['tmax']
     bin_indices = range(int(sfreq * tmin), int(sfreq * tmax))
     times = np.linspace(tmin, tmax, len(bin_indices))
     if verbose:
-        print('Plotting channel %s' % ch_name)
+        print('Plotting %s' % name)
     if ax is None:
         fig, ax = plt.subplots()
     epochs_tfr = np.zeros((len(events), len(bin_indices)))
@@ -464,7 +466,7 @@ def _plot_power(ch_name, events, sfreq,
                          bin_indices]
     evoked_tfr = np.mean(epochs_tfr, axis=0)
     evoked_tfr_std = np.std(epochs_tfr, axis=0)
-    ax.plot(times, evoked_tfr, label=ch_name)
+    ax.plot(times, evoked_tfr, label=name)
     ax.fill_between(times, evoked_tfr - evoked_tfr_std,
                     evoked_tfr + evoked_tfr_std, alpha=0.25)
     ax.set_ylim([0, ylim])
