@@ -15,9 +15,10 @@ from mne.time_frequency import tfr_morlet
 from mne import Epochs
 
 
-def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
-                     hfreq=50, dfreq=1, n_cycles=7, use_fft=True,
-                     plot_bursts=False, verbose=True, overwrite=False):
+def plot_spectrogram(rawf, raw, event, events, method='raw',
+                     lfreq=4, hfreq=50, dfreq=1, n_cycles=7, use_fft=True,
+                     columns=3, plot_bursts=False, picks=None,
+                     verbose=True, overwrite=False):
     ''' Plots a bar chart of beta bursts.
     Parameters
     ----------
@@ -30,8 +31,13 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
     events : np.array(n_events, 3)
         The events from mne.events_from_annotations or mne.find_events
         corresponding to the event and trials that are described by the name.
-    columns : int
-        The number of columns to use in the plot.
+    method : str ('raw', 'phase-locked', 'non-phase-locked', 'total')
+        How to plot the spectrograms:
+            raw -- plot without averaging power
+            phase-locked -- just average the event-related potential (ERP)
+            non-phase-locked -- subtract the ERP from each epoch, do time
+                                frequency decomposition (TFR) then average
+            total -- do TFR on each epoch and then average
     lfreq : float
         The lowest frequency to use.
     hfreq : float
@@ -42,83 +48,128 @@ def plot_spectrogram(rawf, raw, event, events, columns=3, lfreq=4,
         The number of cycles to use in the Morlet transform
     use_fft : bool
         Use Fast Fourier Transform see `mne.time_frequency.tfr.cwt`.
+    columns : int
+        The number of columns to use in the plot (for `method=raw`).
     plot_bursts : bool
-        Whether to include vertical bars for when the bursts are detected.
+        Whether to include vertical bars for when the bursts are detected
+        (for `method=raw`).
+    picks : None | list of str
+        The names of the channels to plot
     '''
     config = get_config()
     plotf = derivative_fname(rawf, 'plots/spectrograms',
-                             event + '_spectrogram_%s',
+                             event + '_spectrogram_%s_' + method,
                              config['fig'])
-    if op.isdir(op.dirname(plotf)) and not overwrite:
+    if method not in ('raw', 'phase-locked', 'non-phase-locked', 'total'):
+        raise ValueError('Unrecognized method %s' % method)
+    if picks is None:
+        picks = raw.ch_names
+    if (all([op.isfile(plotf % ch_name) for ch_name in picks]) and
+            not overwrite):
         print('Spectrogram plot for %s already exists, ' % event +
               'use `overwrite=True` to replot')
         return
-    if plot_bursts:
+    if method == 'raw' and plot_bursts:
         bursts = find_bursts(rawf, return_saved=True)
     epochs = Epochs(raw, events, tmin=config['tmin'] - 1,
-                    tmax=config['tmax'] + 1)
+                    tmax=config['tmax'] + 1, preload=True)
+    if method == 'non-phase-locked':
+        epochs._data -= epochs.average().data  # subtract evoked
     epochs_tfr = tfr_morlet(epochs, np.arange(lfreq, hfreq, dfreq),
                             n_cycles=n_cycles, use_fft=use_fft,
-                            average=False, return_itc=False)
+                            average=method == 'phase-locked',
+                            return_itc=False)
     epochs_tfr.crop(tmin=config['tmin'], tmax=config['tmax'])
-    for i, ch_name in enumerate(epochs_tfr.ch_names):
+    for i, ch_name in enumerate(epochs_tfr):
+        if ch_name not in picks:
+            continue
         if verbose:
             print('Plotting spectrogram for channel %s' % ch_name)
-            if plot_bursts:
+            if method == 'raw' and plot_bursts:
                 n_bursts = len(bursts[bursts['channel'] == ch_name])
                 print('%i bursts for this channel total' % n_bursts)
         this_plot_f = plotf % ch_name
-        rows = int(len(events) / columns)
-        fig, axes = plt.subplots(rows, columns)
-        axes = axes.flatten()
+        vmin, vmax = epochs_tfr.data[:, i].min(), epochs_tfr.data[:, i].max()
+        if method == 'raw':
+            rows = int(len(events) / columns)
+            fig, axes = plt.subplots(rows, columns)
+            axes = axes.flatten()
+            for j, this_tfr in enumerate(epochs_tfr):
+                cmap = _plot_spectrogram(axes[j], this_tfr[i],
+                                         epochs_tfr.times,
+                                         vmin, vmax, lfreq, hfreq, dfreq,
+                                         j % columns == 0,
+                                         j == int(len(events) / 2), False)
+                if plot_bursts:
+                    _plot_bursts(config, events, raw, bursts, j, axes, ch_name)
+            axes = axes.reshape(rows, columns)
+            for col_idx in range(columns):
+                axes[-1, col_idx].set_xlabel('Time (s)')
+                axes[-1, col_idx].set_xticks(
+                    np.linspace(0, len(epochs_tfr.times), 5))
+                axes[-1, col_idx].set_xticklabels(
+                    ['%.2f' % t for t in np.linspace(epochs_tfr.times[0],
+                                                     epochs_tfr.times[-1], 5)])
+        else:
+            fig, ax = plt.subplots()
+            this_tfr = (epochs_tfr.data[i] if method == 'phase-locked' else
+                        epochs_tfr.average().data[i])
+            cmap = _plot_spectrogram(ax, this_tfr, epochs_tfr.times,
+                                     vmin, vmax, lfreq, hfreq, dfreq)
         fig.subplots_adjust(right=0.85)
         cax = fig.add_subplot(position=[0.9, 0.1, 0.05, .8])
-        fig.set_size_inches(12, 8)
-        vmin, vmax = epochs_tfr.data[:, i].min(), epochs_tfr.data[:, i].max()
-        for j, this_tfr in enumerate(epochs_tfr):
-            cmap = axes[j].imshow(this_tfr[i], aspect='auto', vmin=vmin,
-                                  vmax=vmax, cmap='RdYlBu_r')
-            axes[j].invert_yaxis()
-            if j % columns == 0:
-                axes[j].set_yticks(np.linspace(0, (hfreq - lfreq) / dfreq, 3))
-                axes[j].set_yticklabels(['%i' % f for f in
-                                         np.linspace(lfreq, hfreq, 3)])
-            else:
-                axes[j].set_yticklabels([])
-            if j == int(len(events) / 2):
-                axes[j].set_ylabel('Frequency (Hz)')
-            axes[j].axvline(np.where(epochs_tfr.times == 0)[0][0], color='k')
-            axes[j].set_xticks([])
-            if plot_bursts:
-                min_idx = events[j, 0] + raw.info['sfreq'] * config['tmin']
-                max_idx = events[j, 0] + raw.info['sfreq'] * config['tmax']
-                these_bursts = bursts[(bursts['channel'] == ch_name) &
-                                      (bursts['burst_end'] > min_idx) &
-                                      (bursts['burst_start'] < max_idx)]
-                if these_bursts.size > 0:
-                    for burst_idx in these_bursts.index:
-                        for start_stop in ['burst_start', 'burst_end']:
-                            if (max_idx > these_bursts.loc[burst_idx,
-                                                           start_stop] >
-                                    min_idx):
-                                axes[j].axvline(
-                                    x=these_bursts.loc[burst_idx,
-                                                       start_stop] - min_idx,
-                                    color='green')
-        axes = axes.reshape(rows, columns)
-        for col_idx in range(columns):
-            axes[-1, col_idx].set_xlabel('Time (s)')
-            axes[-1, col_idx].set_xticks(
-                np.linspace(0, len(epochs_tfr.times), 5))
-            axes[-1, col_idx].set_xticklabels(
-                ['%.2f' % t for t in np.linspace(epochs_tfr.times[0],
-                                                 epochs_tfr.times[-1], 5)])
         cax = fig.colorbar(cmap, cax=cax)
         cax.set_label('Power')
+        fig.set_size_inches(12, 8)
         fig.suptitle('Time Frequency Decomposition for the %s ' % event +
                      'Event, Channel %s' % ch_name)
         fig.savefig(this_plot_f, dpi=300)
         plt.close(fig)
+
+
+def _plot_spectrogram(ax, this_tfr, times, vmin, vmax,
+                      lfreq, hfreq, dfreq, show_yticks=True,
+                      show_ylabel=True, show_xticks=True):
+    '''Plot a single spectrogram'''
+    cmap = ax.imshow(this_tfr, aspect='auto', vmin=vmin,
+                     vmax=vmax, cmap='RdYlBu_r')
+    ax.invert_yaxis()
+    if show_yticks:
+        ax.set_yticks(np.linspace(0, (hfreq - lfreq) / dfreq, 3))
+        ax.set_yticklabels(['%i' % f for f in
+                           np.linspace(lfreq, hfreq, 3)])
+    else:
+        ax.set_yticklabels([])
+    if show_ylabel:
+        ax.set_ylabel('Frequency (Hz)')
+    ax.axvline(np.where(times == 0)[0][0], color='k')
+    if show_xticks:
+        ax.set_xlabel('Time (s)')
+        ax.set_xticks(np.linspace(0, len(times), 5))
+        ax.set_xticklabels(['%.2f' % t for t in
+                            np.linspace(times[0], times[-1], 5)])
+    else:
+        ax.set_xticks([])
+    return cmap
+
+
+def _plot_bursts(config, events, raw, bursts, j, axes, ch_name):
+    '''Plot bursts on a single spectrogram'''
+    min_idx = events[j, 0] + raw.info['sfreq'] * config['tmin']
+    max_idx = events[j, 0] + raw.info['sfreq'] * config['tmax']
+    these_bursts = bursts[(bursts['channel'] == ch_name) &
+                          (bursts['burst_end'] > min_idx) &
+                          (bursts['burst_start'] < max_idx)]
+    if these_bursts.size > 0:
+        for burst_idx in these_bursts.index:
+            for start_stop in ['burst_start', 'burst_end']:
+                if (max_idx > these_bursts.loc[burst_idx,
+                                               start_stop] >
+                        min_idx):
+                    axes[j].axvline(
+                        x=these_bursts.loc[burst_idx,
+                                           start_stop] - min_idx,
+                        color='green')
 
 
 def plot_group_bursting(rawfs, event, events, tfr_name='beta',
@@ -244,7 +295,7 @@ def _plot_bursting(burst_data, picks, method, ylim, rolling, verbose):
                                        axis_facecolor='white',
                                        axis_spinecolor='white'):
             _plot_burst_data(burst_data, [info['ch_names'][idx]],
-                    method, ylim, rolling, ax, verbose)
+                             method, ylim, rolling, ax, verbose)
         fig = plt.gcf()
     else:
         fig, ax = plt.subplots()
@@ -355,7 +406,13 @@ def plot_group_power(rawf, name, event, events, infos, picks=None,
         return
     tfr, my_ch_names, sfreq = decompose_tfr(rawf, tfr_name, return_saved=True)
     tfr /= tfr.mean(axis=1)[:, np.newaxis]  # z-score power
-    if sfreq != info['sfreq']:
+    info = infos[0]
+    if any([(this_info['sfreq'] != info['sfreq'] or
+             this_info['ch_names'] != info['ch_names'])
+            for this_info in infos[1:]]):
+        raise ValueError('Info objects in infos have a different sampling ' +
+                         'frequency or channel names')
+    if info['sfreq'] != sfreq:
         raise ValueError('Raw sampling frequency mismatch with tfr sfreq')
     if any(info['ch_names'] != my_ch_names):
         raise ValueError('Raw channel names mismatch with tfr channel names')
@@ -437,7 +494,7 @@ def plot_power(rawf, event, events, info, picks=None,
         fig, ax = plt.subplots()
         for name in events:
             for idx, ch_name in enumerate(picks):
-                label = ch_name if name is None else name + ' ' + ch_name 
+                label = ch_name if name is None else name + ' ' + ch_name
                 _plot_power(label, events[name], sfreq, tfr[idx],
                             np.quantile(tfr, 0.9), ax=ax)
         ax.legend()
