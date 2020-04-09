@@ -235,17 +235,17 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                 cmap = _plot_spectrogram(
                     ax, this_tfr, epochs_tfr.times, vmin, vmax, freqs,
                     ((evoked.data[idx], emin, emax) if plot_erp else None))
-        fig.subplots_adjust(right=0.85, hspace=0.3)
-        cax = fig.add_subplot(position=[0.87, 0.1, 0.05, 0.8])
-        cax = fig.colorbar(cmap, cax=cax, format='%.2f',
-                           ticks=[vmin, vmin / 10, vmin / 100,
-                                  vmax / 100, vmax / 10, vmax])
-        cax.set_label(('Log %s Power %s Normalized' % (method, baseline)
-                       ).title())
-        fig.suptitle('Time Frequency Decomposition for the %s ' % event +
-                     'Event, %s Power' % baseline.capitalize())
-        fig.savefig(plotf, dpi=300)
-        plt.close(fig)
+    fig.subplots_adjust(right=0.85, hspace=0.3)
+    cax = fig.add_subplot(position=[0.87, 0.1, 0.05, 0.8])
+    cax = fig.colorbar(cmap, cax=cax, format='%.2f',
+                       ticks=[vmin, vmin / 10, vmin / 100,
+                              vmax / 100, vmax / 10, vmax])
+    cax.set_label(('Log %s Power %s Normalized' % (method, baseline)
+                   ).title())
+    fig.suptitle('Time Frequency Decomposition for the %s ' % event +
+                 'Event, %s Power' % baseline.capitalize())
+    fig.savefig(plotf, dpi=300)
+    plt.close(fig)
 
 
 def _plot_spectrogram(ax, this_tfr, times, vmin, vmax,
