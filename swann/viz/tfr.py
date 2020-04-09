@@ -62,6 +62,7 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
         The names of the channels to plot
     '''
     config = get_config()
+    raw = raw.copy()
     if method not in ('raw', 'phase-locked', 'non-phase-locked', 'total'):
         raise ValueError('Unrecognized method %s' % method)
     if picks is None:
