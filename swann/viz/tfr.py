@@ -67,12 +67,12 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
     if picks is None:
         picks = raw.ch_names
     else:
+        if isinstance(picks, str):
+            picks = [picks]
         raw = raw.pick_channels(picks)
     if method == 'raw' and len(picks) > 1:
         raise ValueError('Only one channel can be plotted at a time ' +
                          'for raw spectrograms')
-    if isinstance(picks, str):
-        picks = [picks]
     picks_str = '_'.join(picks).replace(' ', '_')
     plotf = derivative_fname(rawf, 'plots/spectrograms',
                              'event-%s_spectrogram_' % event +
