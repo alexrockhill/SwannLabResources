@@ -18,7 +18,7 @@ from mne import Epochs, EvokedArray
 def plot_spectrogram(rawf, raw, event, events, bl_events,
                      method='raw', baseline='z-score',
                      freqs=np.logspace(np.log(4), np.log(250), 50, base=np.e),
-                     n_cycles=7, use_fft=True, columns=3, plot_erp=True,
+                     n_cycles=7, use_fft=True, ncols=3, plot_erp=True,
                      plot_bursts=False, picks=None, verbose=True,
                      overwrite=False):
     ''' Plots a bar chart of beta bursts.
@@ -51,8 +51,8 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
         The number of cycles to use in the Morlet transform
     use_fft : bool
         Use Fast Fourier Transform see `mne.time_frequency.tfr.cwt`.
-    columns : int
-        The number of columns to use in the plot (for `method=raw`).
+    ncols : int
+        The number of ncols to use in the plot (for `method=raw`).
     plot_erp : bool
         Whether to plot the event-related potential on top.
     plot_bursts : bool
@@ -177,27 +177,28 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
     if method == 'raw':
         ch_name = epochs_tfr.ch_names[0]
         vmin, vmax = np.min(epochs_tfr.data), np.max(epochs_tfr.data)
-        emin, emax = np.min(epochs._data), np.max(epochs._data)
+        emin, emax = np.min(cropped_epochs._data), np.max(cropped_epochs._data)
         if verbose:
             print('Plotting spectrogram for channel %s' % ch_name)
             if plot_bursts:
                 n_bursts = len(bursts[bursts['channel'] == ch_name])
                 print('%i bursts for this channel total' % n_bursts)
-        rows = int(len(events) / columns)
-        fig, axes = plt.subplots(rows, columns)
-        fig.set_size_inches(columns * 4, len(events))
+        nrows = int(np.ceil(len(events) / ncols))
+        fig, axes = plt.subplots(nrows, ncols)
+        fig.set_size_inches(ncols, nrows)
         axes = axes.flatten()
         for j, this_tfr in enumerate(epochs_tfr):
-            evoked_data = (epochs._data[j, 0], emin, emax)
+            evoked_data = (cropped_epochs._data[j, 0], emin, emax)
             cmap = _plot_spectrogram(
                 axes[j], this_tfr[i], epochs_tfr.times,
                 vmin, vmax, freqs, evoked_data,
-                show_xticks=j % rows == 0,
-                show_yticks=j % columns == 0,
-                show_ylabel=(j % rows == int(columns / 2) - 1 and
-                             j % columns == 0))
+                show_xticks=j >= len(events) - ncols,
+                show_yticks=j % ncols == 0,
+                show_ylabel=j == int(nrows / 2) * ncols)
             if plot_bursts:
                 _plot_bursts(config, events, raw, bursts, j, axes, ch_name)
+        for ax in axes[len(epochs_tfr):]:
+            ax.axis('off')
     else:
         if plot_erp:
             evoked_data = np.median(cropped_epochs._data, axis=0)
@@ -210,6 +211,7 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
             nrows = int(len(raw.ch_names) ** 0.5)
             ncols = int(len(raw.ch_names) / nrows) + 1
             fig, axes = plt.subplots(nrows, ncols)
+            fig.set_size_inches(12, 8)
             axes = axes.flatten()
             for idx, ax in enumerate(axes):
                 if idx < len(picks):
@@ -217,10 +219,9 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                         ax, evoked_tfr.data[idx], epochs_tfr.times,
                         vmin, vmax, freqs, ((evoked.data[idx], emin, emax) if
                                             plot_erp else None),
-                        show_xticks=idx >= len(picks) - nrows - 1,
+                        show_xticks=idx >= len(picks) - ncols,
                         show_yticks=idx % ncols == 0,
-                        show_ylabel=(idx % nrows == int(ncols / 2) - 1 and
-                                     idx % ncols == 0))
+                        show_ylabel=idx % int(nrows / 2) * ncols)
                     ax.set_title(raw.ch_names[idx])
                 else:
                     ax.axis('off')
@@ -238,7 +239,6 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                                   vmax / 100, vmax / 10, vmax])
         cax.set_label(('Log %s Power %s Normalized' % (method, baseline)
                        ).title())
-        fig.set_size_inches(12, 8)
         fig.suptitle('Time Frequency Decomposition for the %s ' % event +
                      'Event, %s Power' % baseline.capitalize())
         fig.savefig(plotf, dpi=300)
@@ -271,9 +271,9 @@ def _plot_spectrogram(ax, this_tfr, times, vmin, vmax,
     ax.axvline(np.where(times == 0)[0][0], color='k')
     if show_xticks:
         ax.set_xlabel('Time (s)')
-        ax.set_xticks(np.linspace(0, len(times), 5))
+        ax.set_xticks(np.linspace(0, len(times), 3))
         ax.set_xticklabels(['%.1f' % t for t in
-                            np.linspace(times[0], times[-1], 5)])
+                            np.linspace(times[0], times[-1], 3)])
     else:
         ax.set_xticks([])
     return cmap
