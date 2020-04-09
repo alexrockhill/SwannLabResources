@@ -83,7 +83,7 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
         return
     if method == 'raw' and plot_bursts:
         bursts = find_bursts(rawf, return_saved=True)
-    if isinstance(n_cycles, np.array) and len(freqs) != len(n_cycles):
+    if isinstance(n_cycles, np.ndarray) and len(freqs) != len(n_cycles):
         raise ValueError('Mismatch lengths n_cycles %s to freqs %s' %
                          (n_cycles, freqs))
     epochs = Epochs(raw, events, tmin=config['tmin'] - 1, baseline=None,
