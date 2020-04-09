@@ -132,9 +132,8 @@ def find_bursts(bf, signal=None, ch_names=None, thresh=6, return_saved=False,
 
 
 def decompose_tfr(this_data, sfreq, method=None, avg_freqs=False,
-                  lfreq=15, hfreq=29, dfreq=1, n_cycles=7,
-                  use_fft=True, mode='same', output='power',
-                  verbose=True, overwrite=False):
+                  lfreq=15, hfreq=29, dfreq=1, n_cycles=7, use_fft=True,
+                  mode='same', verbose=True, overwrite=False):
     ''' Compute a time frequency decomposition (default beta).
     Parameters
     ----------
@@ -162,8 +161,6 @@ def decompose_tfr(this_data, sfreq, method=None, avg_freqs=False,
         Use Fast Fourier Transform see `mne.time_frequency.tfr.cwt`.
     mode : ‘same’ | ‘valid’ | ‘full’
         Convention for convolution see see `mne.time_frequency.tfr.cwt`.
-    output : `power` | `phase`
-        Whether to output the power or phase of the TFR.
     Returns
     -------
     tfr : np.array(n_channels, n_times)
@@ -205,9 +202,6 @@ def decompose_tfr(this_data, sfreq, method=None, avg_freqs=False,
         tfr = np.zeros(n_chs, n_times)
     else:
         tfr = np.zeros(n_freqs, n_chs, n_times)
-    if output not in ('power', 'phase'):
-        raise ValueError('Unregcognized ouput %s, must be ' % output +
-                         '`power` or `phase`')
     if verbose:
         print('Computing time frequency decomposition')
     for epoch in tqdm(this_data) if use_tqdm else this_data:
@@ -215,10 +209,7 @@ def decompose_tfr(this_data, sfreq, method=None, avg_freqs=False,
             W = morlet(sfreq, [freq], n_cycles=n_cycles,
                        zero_mean=False)
             this_tfr = cwt(epoch, W, use_fft=use_fft, mode=mode)
-            if output == 'power':
-                this_tfr = abs(this_tfr[:, 0])
-            elif output == 'phase':
-                this_tfr = np.angle(this_tfr[:, 0])
+            this_tfr = abs(this_tfr[:, 0])
             if avg_freqs:
                 tfr += this_tfr
             else:

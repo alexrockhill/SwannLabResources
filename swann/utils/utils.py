@@ -252,8 +252,7 @@ def get_events(raw, exclude_events=None):
     return all_events
 
 
-def select_events(events, indices, reject_indices):
-    indices = set(indices) - set(reject_indices)
+def select_events(events, indices):
     return events[[i for i, e in enumerate(events[:, 2]) if
                    e in indices]]
 

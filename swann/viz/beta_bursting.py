@@ -11,11 +11,12 @@ from swann.utils import get_config, derivative_fname
 from swann.analyses import decompose_tfr, find_bursts, get_bursts
 
 from mne.viz import iter_topography
-from mne.time_frequency import tfr_morlet
-from mne import Epochs
+from mne.time_frequency import tfr_morlet, EpochsTFR, AverageTFR
+from mne import Epochs, EvokedArray
 
 
-def plot_spectrogram(rawf, raw, event, events, method='raw',
+def plot_spectrogram(rawf, raw, event, events, bl_events,
+                     method='raw', baseline='z-score',
                      lfreq=4, hfreq=50, dfreq=1, n_cycles=7, use_fft=True,
                      columns=3, plot_bursts=False, picks=None,
                      verbose=True, overwrite=False):
@@ -31,13 +32,18 @@ def plot_spectrogram(rawf, raw, event, events, method='raw',
     events : np.array(n_events, 3)
         The events from mne.events_from_annotations or mne.find_events
         corresponding to the event and trials that are described by the name.
-    method : str ('raw', 'phase-locked', 'non-phase-locked', 'total')
+    method : `raw` | `phase-locked` | `non-phase-locked` | `total'
         How to plot the spectrograms:
-            raw -- plot without averaging power
+            raw -- plot without averaging power (default)
             phase-locked -- just average the event-related potential (ERP)
             non-phase-locked -- subtract the ERP from each epoch, do time
                                 frequency decomposition (TFR) then average
             total -- do TFR on each epoch and then average
+    baseline : `z-score` | `gain`
+        How to baseline specrogram data:
+            z-score -- for each frequency, subtract the median and divide
+                       by the standard deviation (default)
+            gain -- divide by median
     lfreq : float
         The lowest frequency to use.
     hfreq : float
@@ -57,87 +63,193 @@ def plot_spectrogram(rawf, raw, event, events, method='raw',
         The names of the channels to plot
     '''
     config = get_config()
-    plotf = derivative_fname(rawf, 'plots/spectrograms',
-                             event + '_spectrogram_%s_' + method,
-                             config['fig'])
     if method not in ('raw', 'phase-locked', 'non-phase-locked', 'total'):
         raise ValueError('Unrecognized method %s' % method)
     if picks is None:
         picks = raw.ch_names
-    if (all([op.isfile(plotf % ch_name) for ch_name in picks]) and
-            not overwrite):
+    else:
+        raw = raw.pick_channels(picks)
+    if method == 'raw' and len(picks) > 1:
+        raise ValueError('Only one channel can be plotted at a time ' +
+                         'for raw spectrograms')
+    picks_str = '_'.join(picks).replace(' ', '_')
+    plotf = derivative_fname(rawf, 'plots/spectrograms',
+                             '%s_spectrogram' % event +
+                             '%s_%s' % (method, picks_str) +
+                             '_%s_power' % baseline,
+                             config['fig'])
+    if op.isfile(plotf) and not overwrite:
         print('Spectrogram plot for %s already exists, ' % event +
               'use `overwrite=True` to replot')
         return
     if method == 'raw' and plot_bursts:
         bursts = find_bursts(rawf, return_saved=True)
-    epochs = Epochs(raw, events, tmin=config['tmin'] - 1,
+    freqs = np.arange(lfreq, hfreq + dfreq, dfreq)
+    if isinstance(n_cycles, np.array) and len(freqs) != len(n_cycles):
+        raise ValueError('Mismatch lengths n_cycles %s to freqs %s' %
+                         (n_cycles, freqs))
+    epochs = Epochs(raw, events, tmin=config['tmin'] - 1, baseline=None,
                     tmax=config['tmax'] + 1, preload=True)
-    if method == 'non-phase-locked':
-        epochs._data -= epochs.average().data  # subtract evoked
-    epochs_tfr = tfr_morlet(epochs, np.arange(lfreq, hfreq, dfreq),
-                            n_cycles=n_cycles, use_fft=use_fft,
-                            average=method == 'phase-locked',
-                            return_itc=False)
-    epochs_tfr.crop(tmin=config['tmin'], tmax=config['tmax'])
-    for i, ch_name in enumerate(epochs_tfr):
-        if ch_name not in picks:
-            continue
+    bl_epochs = Epochs(raw, bl_events, tmin=config['baseline_tmin'] - 1,
+                       baseline=None, tmax=config['baseline_tmax'] + 1,
+                       preload=True)
+    if method == 'phase-locked':
+        bl_evoked = EvokedArray(np.median(bl_epochs._data, axis=0),
+                                info=bl_epochs.info, tmin=bl_epochs.tmin,
+                                nave=len(bl_epochs))
+        bl_evoked_tfr = tfr_morlet(bl_evoked, freqs, n_cycles=n_cycles,
+                                   use_fft=use_fft, return_itc=False)
+        bl_evoked_tfr.crop(tmin=config['baseline_tmin'],
+                           tmax=config['baseline_tmax'])
+        evoked = EvokedArray(np.median(epochs._data, axis=0),
+                             info=epochs.info, tmin=epochs.tmin,
+                             nave=len(epochs))
+        evoked_tfr = tfr_morlet(evoked, freqs, n_cycles=n_cycles,
+                                use_fft=use_fft, return_itc=False)
+        evoked_tfr.crop(tmin=config['tmin'], tmax=config['tmax'])
+        evoked_tfr.data = ((evoked_tfr.data -
+                            np.median(bl_evoked_tfr.data,
+                                      axis=2)[:, :, np.newaxis]) /
+                           np.std(bl_evoked_tfr.data,
+                                  axis=2)[:, :, np.newaxis])
+    else:
+        if method == 'non-phase-locked':
+            epochs._data -= np.median(epochs._data, axis=0)
+        cropped_epochs = epochs.copy().crop(tmin=config['tmin'],
+                                            tmax=config['tmax'])
+        cropped_bl_epochs = bl_epochs.copy().crop(
+            tmin=config['baseline_tmin'], tmax=config['baseline_tmax'])
+        epochs_data = np.zeros((len(epochs), len(epochs.ch_names), len(freqs),
+                                len(cropped_epochs.times)))
+        bl_epochs_data = np.zeros((len(bl_epochs), len(bl_epochs.ch_names),
+                                   len(freqs), len(cropped_bl_epochs.times)))
+        epochs_tfr = EpochsTFR(epochs.info, epochs_data, cropped_epochs.times,
+                               freqs, verbose=False)
+        bl_epochs_tfr = EpochsTFR(bl_epochs.info, bl_epochs_data,
+                                  cropped_bl_epochs.times, freqs,
+                                  verbose=False)
+        if method != 'raw':
+            evoked_tfr_data = np.zeros((len(epochs.ch_names), len(freqs),
+                                        len(cropped_epochs.times)))
+            evoked_tfr = AverageTFR(epochs.info, evoked_tfr_data,
+                                    cropped_epochs.times, freqs,
+                                    nave=len(epochs))
+        for i, ch in enumerate(epochs.ch_names):
+            if verbose:
+                print('\nComputing TFR (%i/%i)' % (i, len(epochs.ch_names)) +
+                      'for %s... Computing frequency' % ch,
+                      end=' ', flush=True)
+            this_epochs = epochs.copy().pick_channels([ch])
+            this_bl_epochs = bl_epochs.copy().pick_channels([ch])
+            for j, freq in enumerate(freqs):
+                if verbose:
+                    print(freq, end=' ', flush=True)
+                this_n_cycles = (n_cycles if isinstance(n_cycles, int) else
+                                 n_cycles[i])
+                this_bl_epochs_tfr = \
+                    tfr_morlet(this_bl_epochs, [freq], n_cycles=this_n_cycles,
+                               use_fft=use_fft, average=False,
+                               return_itc=False, verbose=False)
+                this_bl_epochs_tfr = this_bl_epochs_tfr.crop(
+                    tmin=config['baseline_tmin'], tmax=config['baseline_tmax'])
+                this_epochs_tfr = \
+                    tfr_morlet(this_epochs, [freq], n_cycles=this_n_cycles,
+                               use_fft=use_fft, average=False,
+                               return_itc=False, verbose=False)
+                this_epochs_tfr = this_epochs_tfr.crop(
+                    tmin=config['tmin'], tmax=config['tmax'])
+                full_data = np.concatenate([this_bl_epochs_tfr.data,
+                                            this_epochs_tfr.data], axis=3)
+                epochs_tfr.data[:, i:i + 1, j:j + 1, :] = \
+                    ((this_epochs_tfr.data -
+                      np.median(full_data, axis=3)[:, :, :, np.newaxis]) /
+                     np.std(full_data, axis=3)[:, :, :, np.newaxis])
+                bl_epochs_tfr.data[:, i:i + 1, j:j + 1, :] = \
+                    ((this_bl_epochs_tfr.data -
+                      np.median(full_data, axis=3)[:, :, :, np.newaxis]) /
+                     np.std(full_data, axis=3)[:, :, :, np.newaxis])
+                if method != 'raw':
+                    this_evoked_tfr = np.median(epochs_tfr.data[:, i, j],
+                                                axis=0)
+                    this_bl_evoked_tfr = np.median(bl_epochs_tfr.data[:, i, j],
+                                                   axis=0)
+                    evoked_tfr.data[i, j] = \
+                        ((this_evoked_tfr - np.median(this_bl_evoked_tfr)) /
+                         np.std(this_bl_evoked_tfr))
+    if method == 'raw':
+        ch_name = epochs_tfr.ch_names[0]
+        vmin, vmax = np.min(epochs_tfr.data), np.max(epochs_tfr.data)
         if verbose:
             print('Plotting spectrogram for channel %s' % ch_name)
-            if method == 'raw' and plot_bursts:
+            if plot_bursts:
                 n_bursts = len(bursts[bursts['channel'] == ch_name])
                 print('%i bursts for this channel total' % n_bursts)
-        this_plot_f = plotf % ch_name
-        vmin, vmax = epochs_tfr.data[:, i].min(), epochs_tfr.data[:, i].max()
-        if method == 'raw':
-            rows = int(len(events) / columns)
-            fig, axes = plt.subplots(rows, columns)
+        rows = int(len(events) / columns)
+        fig, axes = plt.subplots(rows, columns)
+        fig.set_size_inches(columns * 4, len(events))
+        axes = axes.flatten()
+        for j, this_tfr in enumerate(epochs_tfr):
+            cmap = _plot_spectrogram(axes[j], this_tfr[i],
+                                     epochs_tfr.times, vmin, vmax, freqs,
+                                     j % columns == 0,
+                                     j == int(len(events) / 2), False)
+            if plot_bursts:
+                _plot_bursts(config, events, raw, bursts, j, axes, ch_name)
+        axes = axes.reshape(rows, columns)
+        for col_idx in range(columns):
+            axes[-1, col_idx].set_xlabel('Time (s)')
+            axes[-1, col_idx].set_xticks(
+                np.linspace(0, len(epochs_tfr.times), 5))
+            axes[-1, col_idx].set_xticklabels(
+                ['%.2f' % t for t in np.linspace(epochs_tfr.times[0],
+                                                 epochs_tfr.times[-1], 5)])
+    else:
+        vmin, vmax = np.min(evoked_tfr.data), np.max(evoked_tfr.data)
+        if raw.info['dig'] is None:
+            nrows = int(len(raw.ch_names) ** 0.5)
+            ncols = int(len(raw.ch_names) / nrows) + 1
+            fig, axes = plt.subplots(nrows, ncols)
             axes = axes.flatten()
-            for j, this_tfr in enumerate(epochs_tfr):
-                cmap = _plot_spectrogram(axes[j], this_tfr[i],
-                                         epochs_tfr.times,
-                                         vmin, vmax, lfreq, hfreq, dfreq,
-                                         j % columns == 0,
-                                         j == int(len(events) / 2), False)
-                if plot_bursts:
-                    _plot_bursts(config, events, raw, bursts, j, axes, ch_name)
-            axes = axes.reshape(rows, columns)
-            for col_idx in range(columns):
-                axes[-1, col_idx].set_xlabel('Time (s)')
-                axes[-1, col_idx].set_xticks(
-                    np.linspace(0, len(epochs_tfr.times), 5))
-                axes[-1, col_idx].set_xticklabels(
-                    ['%.2f' % t for t in np.linspace(epochs_tfr.times[0],
-                                                     epochs_tfr.times[-1], 5)])
+            for idx, ax in enumerate(axes):
+                if idx < len(picks):
+                    cmap = _plot_spectrogram(
+                        ax, evoked_tfr.data[idx], epochs_tfr.times,
+                        vmin, vmax, freqs,
+                        show_xticks=idx >= len(picks) - nrows - 1,
+                        show_yticks=idx % ncols == 0,
+                        show_ylabel=idx == int(len(axes) / 2))
+                    ax.set_title(raw.ch_names[idx])
+                else:
+                    ax.axis('off')
         else:
-            fig, ax = plt.subplots()
-            this_tfr = (epochs_tfr.data[i] if method == 'phase-locked' else
-                        epochs_tfr.average().data[i])
-            cmap = _plot_spectrogram(ax, this_tfr, epochs_tfr.times,
-                                     vmin, vmax, lfreq, hfreq, dfreq)
-        fig.subplots_adjust(right=0.85)
+            for ax, idx in iter_topography(raw.info, fig_facecolor='white',
+                                           axis_facecolor='white',
+                                           axis_spinecolor='white'):
+                cmap = _plot_spectrogram(ax, this_tfr, epochs_tfr.times,
+                                         vmin, vmax, freqs)
+        fig.subplots_adjust(right=0.85, hspace=0.3)
         cax = fig.add_subplot(position=[0.9, 0.1, 0.05, .8])
         cax = fig.colorbar(cmap, cax=cax)
-        cax.set_label('Power')
+        cax.set_label(('%s Power %s Normalized' % (method, baseline)
+                       ).title())
         fig.set_size_inches(12, 8)
         fig.suptitle('Time Frequency Decomposition for the %s ' % event +
-                     'Event, Channel %s' % ch_name)
-        fig.savefig(this_plot_f, dpi=300)
+                     'Event, %s Power' % baseline.capitalize())
+        fig.savefig(plotf, dpi=300)
         plt.close(fig)
 
 
 def _plot_spectrogram(ax, this_tfr, times, vmin, vmax,
-                      lfreq, hfreq, dfreq, show_yticks=True,
+                      freqs, show_yticks=True,
                       show_ylabel=True, show_xticks=True):
     '''Plot a single spectrogram'''
     cmap = ax.imshow(this_tfr, aspect='auto', vmin=vmin,
                      vmax=vmax, cmap='RdYlBu_r')
     ax.invert_yaxis()
     if show_yticks:
-        ax.set_yticks(np.linspace(0, (hfreq - lfreq) / dfreq, 3))
+        ax.set_yticks(np.linspace(0, len(freqs), 3))
         ax.set_yticklabels(['%i' % f for f in
-                           np.linspace(lfreq, hfreq, 3)])
+                           np.linspace(freqs[0], freqs[-1], 3)])
     else:
         ax.set_yticklabels([])
     if show_ylabel:
@@ -146,7 +258,7 @@ def _plot_spectrogram(ax, this_tfr, times, vmin, vmax,
     if show_xticks:
         ax.set_xlabel('Time (s)')
         ax.set_xticks(np.linspace(0, len(times), 5))
-        ax.set_xticklabels(['%.2f' % t for t in
+        ax.set_xticklabels(['%.1f' % t for t in
                             np.linspace(times[0], times[-1], 5)])
     else:
         ax.set_xticks([])
