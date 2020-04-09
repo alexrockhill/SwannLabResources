@@ -261,9 +261,9 @@ def _plot_spectrogram(ax, this_tfr, times, vmin, vmax,
         ax2.set_ylim([emin, emax])
     ax.invert_yaxis()
     if show_yticks:
-        ax.set_yticks(np.linspace(0, len(freqs), 3))
+        ax.set_yticks(np.linspace(0, len(freqs), 5))
         ax.set_yticklabels(['%i' % f for f in
-                           np.linspace(freqs[0], freqs[-1], 3)[::-1]])
+                           freqs[::-int(len(freqs) / 5)]])
     else:
         ax.set_yticklabels([])
     if show_ylabel:
