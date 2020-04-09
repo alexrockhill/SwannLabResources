@@ -17,9 +17,10 @@ from mne import Epochs, EvokedArray
 
 def plot_spectrogram(rawf, raw, event, events, bl_events,
                      method='raw', baseline='z-score',
-                     lfreq=4, hfreq=250, dfreq=3, n_cycles=7, use_fft=True,
-                     columns=3, plot_erp=True, plot_bursts=False, picks=None,
-                     verbose=True, overwrite=False):
+                     freqs=np.logspace(np.log(4), np.log(250), 50, base=np.e),
+                     n_cycles=7, use_fft=True, columns=3, plot_erp=True,
+                     plot_bursts=False, picks=None, verbose=True,
+                     overwrite=False):
     ''' Plots a bar chart of beta bursts.
     Parameters
     ----------
@@ -44,12 +45,8 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
             z-score -- for each frequency, subtract the median and divide
                        by the standard deviation (default)
             gain -- divide by median
-    lfreq : float
-        The lowest frequency to use.
-    hfreq : float
-        The greatest frequency to use.
-    dfreq : int
-        The step size between lfreq and hfreq.
+    freqs : np.array
+        The frequencies over which to compute the spectral data.
     n_cycles : int, np.array
         The number of cycles to use in the Morlet transform
     use_fft : bool
@@ -86,7 +83,6 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
         return
     if method == 'raw' and plot_bursts:
         bursts = find_bursts(rawf, return_saved=True)
-    freqs = np.arange(lfreq, hfreq + dfreq, dfreq)
     if isinstance(n_cycles, np.array) and len(freqs) != len(n_cycles):
         raise ValueError('Mismatch lengths n_cycles %s to freqs %s' %
                          (n_cycles, freqs))
@@ -257,21 +253,21 @@ def _plot_spectrogram(ax, this_tfr, times, vmin, vmax,
                      extent=[0, this_tfr.shape[1], 0, this_tfr.shape[0]],
                      norm=SymLogNorm(linthresh=(vmax - vmin) / 100,
                                      vmin=vmin, vmax=vmax))
-    ax.invert_yaxis()
-    if show_yticks:
-        ax.set_yticks(np.linspace(0, len(freqs), 3))
-        ax.set_yticklabels(['%i' % f for f in
-                           np.linspace(freqs[0], freqs[-1], 3)])
-    else:
-        ax.set_yticklabels([])
-    if show_ylabel:
-        ax.set_ylabel('Frequency (Hz)')
     if evoked_data is not None:
         evoked, emin, emax = evoked_data
         ax2 = ax.twinx()
         ax2.set_yticks([])
         ax2.plot(range(this_tfr.shape[1]), evoked, alpha=0.25, color='k')
         ax2.set_ylim([emin, emax])
+    ax.invert_yaxis()
+    if show_yticks:
+        ax.set_yticks(np.linspace(0, len(freqs), 3))
+        ax.set_yticklabels(['%i' % f for f in
+                           np.linspace(freqs[0], freqs[-1], 3)[::-1]])
+    else:
+        ax.set_yticklabels([])
+    if show_ylabel:
+        ax.set_ylabel('Frequency (Hz)')
     ax.axvline(np.where(times == 0)[0][0], color='k')
     if show_xticks:
         ax.set_xlabel('Time (s)')
