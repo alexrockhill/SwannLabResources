@@ -219,7 +219,7 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
             for idx, ax in enumerate(axes):
                 if idx < len(picks):
                     cmap = _plot_spectrogram(
-                        ax, evoked_tfr.data[idx], epochs_tfr.times,
+                        ax, evoked_tfr.data[idx], evoked_tfr.times,
                         vmin, vmax, freqs, ((evoked.data[idx], emin, emax) if
                                             plot_erp else None),
                         show_xticks=idx >= len(picks) - ncols,
@@ -233,7 +233,7 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                                            axis_facecolor='white',
                                            axis_spinecolor='white'):
                 cmap = _plot_spectrogram(
-                    ax, this_tfr, epochs_tfr.times, vmin, vmax, freqs,
+                    ax, this_tfr, evoked_tfr.times, vmin, vmax, freqs,
                     ((evoked.data[idx], emin, emax) if plot_erp else None))
     fig.subplots_adjust(right=0.85, hspace=0.3)
     cax = fig.add_subplot(position=[0.87, 0.1, 0.05, 0.8])
