@@ -224,7 +224,7 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                                             plot_erp else None),
                         show_xticks=idx >= len(picks) - ncols,
                         show_yticks=idx % ncols == 0,
-                        show_ylabel=idx % int(nrows / 2) * ncols)
+                        show_ylabel=idx == int(nrows / 2) * ncols)
                     ax.set_title(raw.ch_names[idx])
                 else:
                     ax.axis('off')
