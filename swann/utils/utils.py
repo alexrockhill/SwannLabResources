@@ -163,8 +163,8 @@ def get_no_responses(behf):
     return no_responses
 
 
-def read_raw(raw_path, preload=False):
-    config = get_config()
+def read_raw(raw_path, data_ch_type=None, eogs=None, ecgs=None, emgs=None,
+             preload=False):
     rawf, ext = op.splitext(raw_path)
     if ext == '.bdf':
         raw = mne.io.read_raw_bdf(raw_path, preload=preload)
@@ -181,10 +181,22 @@ def read_raw(raw_path, preload=False):
     for ch in ['GSR1', 'GSR2', 'Erg1', 'Erg2', 'Resp', 'Plet', 'Temp']:
         if ch in raw.ch_names and ch not in raw.info['bads']:
             raw.info['bads'].append(ch)
-    eogs, ecgs, emgs = config['eogs'], config['ecgs'], config['emgs']
+    if eogs is None or ecgs is None or emgs is None:
+        config = get_config()
+        if eogs is None:
+            eogs = config['eogs']
+        if ecgs is None:
+            ecgs = config['ecgs']
+        if emgs is None:
+            emgs = config['emgs']
     raw.set_channel_types({ch: ch_type for ch_type, chs in
                            {'eog': eogs, 'ecg': ecgs, 'emg': emgs}.items()
                            for ch in chs})
+    if 'Event' in raw.ch_names:
+        raw.set_channel_types({'Event': 'stim'})
+    if data_ch_type is not None:
+        raw.set_channel_types({ch: data_ch_type for ch in raw.ch_names if
+                               ch not in (eogs + ecgs + emgs + ['Event'])})
     # aux = eogs + ecgs + emgs + ['Status']
     # TO DO: implement read montage from sidecar data
     # for data with digitization
