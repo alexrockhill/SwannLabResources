@@ -10,8 +10,9 @@ from mne import read_annotations, events_from_annotations, find_events
 from mne_bids import write_raw_bids, write_anat
 
 
-def save2bids(bids_dir, sub, task, eegf, behf, annot=None, pd_channels=None,
-              data_ch_type='eeg', eogs=None, ecgs=None, emgs=None):
+def save2bids(bids_dir, sub, task, eegf, behf, ses=None, run=None,
+              annot=None, pd_channels=None, data_ch_type='eeg',
+              eogs=None, ecgs=None, emgs=None):
     """Convert iEEG data collected at OHSU to BIDS format
     Parameters
     ----------
@@ -38,7 +39,14 @@ def save2bids(bids_dir, sub, task, eegf, behf, annot=None, pd_channels=None,
     emgs: list | None
         The channels recording muscle electrophysiology.
     """
-    bids_basename = 'sub-%s_task-%s' % (sub, task)
+    bids_basename = 'sub-%s' % sub
+    bids_dir = op.join(bids_dir, 'sub-%s' % sub)
+    if ses is not None:
+        bids_basename += '_ses-%s' % ses
+        bids_dir = op.join(bids_dir, 'ses-%s' % ses)
+    bids_basename += '_task-%s' % task
+    if run is not None:
+        bids_basename += '_run-%s' % run
     if not op.isdir(op.join(bids_dir, 'beh')):
         os.makedirs(op.join(bids_dir, 'beh'))
     raw = read_raw(eegf, data_ch_type, list() if eogs is None else eogs,
@@ -53,7 +61,7 @@ def save2bids(bids_dir, sub, task, eegf, behf, annot=None, pd_channels=None,
     write_raw_bids(raw, bids_basename, bids_dir,
                    events_data=events, event_id=event_id,
                    overwrite=True)
-    copyfile(behf, op.join(bids_dir, 'sub-%s' % sub, 'beh',
+    copyfile(behf, op.join(bids_dir, 'beh',
                            bids_basename + '_beh.tsv'))
 
 
@@ -67,6 +75,10 @@ if __name__ == '__main__':
                         help='The bids directory filepath')
     parser.add_argument('--sub', type=str, required=True,
                         help='The subject/patient identifier')
+    parser.add_argument('--ses', type=str, required=False,
+                        help='The session identifier')
+    parser.add_argument('--run', type=str, required=False,
+                        help='The run identifier')
     parser.add_argument('--task', type=str, required=False,
                         help='The name of the task')
     parser.add_argument('--eegf', type=str, required=False,
@@ -97,7 +109,8 @@ if __name__ == '__main__':
         else:
             pd_channels = args.pd_channels
         save2bids(args.bids_dir, args.sub, args.task, args.eegf,
-                  args.behf, args.annot, pd_channels, args.data_ch_type,
+                  args.behf, args.ses, args.run, args.annot,
+                  pd_channels, args.data_ch_type,
                   args.eogs, args.ecgs, args.emgs)
     else:
         anat2bids(args.bids_dir, args.sub, args.anatf)
