@@ -275,12 +275,14 @@ if __name__ == '__main__':
         if len(args.relative_event_cols) != len(args.relative_event_names):
             raise ValueError('Mismatched length of relative event behavior '
                              'file column names and names of the events')
-        relative_events = [df[rel_event] for rel_event in
+        relative_events = [np.array(df[rel_event]) for rel_event in
                            args.relative_event_cols]
-        relative_events = {name: np.array(df[rel_event]) for rel_event, name in
+        relative_events = {name: rel_events for rel_events, name in
                            zip(relative_events, args.relative_event_names)}
-        '''e.g. relative_events = {'ISI Onset': 'fix_duration', 'Go Cue': 'go_time',
-                                   'Response': 'response_time'}'''
+        '''e.g. relative_events_names = ['ISI Onset', 'Go Cue', 'Response']
+            relative_event_cols = ['fix_duration', 'go_time', 'response_time']
+        '''
+        print(relative_events)
     else:
         relative_events = None
     raw, pds = parse_pd_events(args.eegf, beh_events, args.pd_event_name,
