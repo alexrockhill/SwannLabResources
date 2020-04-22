@@ -62,8 +62,7 @@ def save2bids(bids_dir, sub, task, eegf, behf, ses=None, run=None,
     write_raw_bids(raw, bids_basename, bids_dir,
                    events_data=events, event_id=event_id,
                    overwrite=True)
-    copyfile(behf, op.join(bids_dir, 'beh',
-                           bids_basename + '_beh.tsv'))
+    copyfile(behf, op.join(bids_beh_dir, bids_basename + '_beh.tsv'))
 
 
 def anat2bids(bids_dir, sub, anatf):
