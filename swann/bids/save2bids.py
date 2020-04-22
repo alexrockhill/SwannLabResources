@@ -40,15 +40,16 @@ def save2bids(bids_dir, sub, task, eegf, behf, ses=None, run=None,
         The channels recording muscle electrophysiology.
     """
     bids_basename = 'sub-%s' % sub
-    bids_dir = op.join(bids_dir, 'sub-%s' % sub)
+    bids_beh_dir = op.join(bids_dir, 'sub-%s' % sub)
     if ses is not None:
         bids_basename += '_ses-%s' % ses
-        bids_dir = op.join(bids_dir, 'ses-%s' % ses)
+        bids_beh_dir = op.join(bids_beh_dir, 'ses-%s' % ses)
     bids_basename += '_task-%s' % task
+    bids_beh_dir = op.join(bids_beh_dir, 'beh')
     if run is not None:
         bids_basename += '_run-%s' % run
-    if not op.isdir(op.join(bids_dir, 'beh')):
-        os.makedirs(op.join(bids_dir, 'beh'))
+    if not op.isdir(bids_beh_dir):
+        os.makedirs(bids_beh_dir)
     raw = read_raw(eegf, data_ch_type, list() if eogs is None else eogs,
                    list() if ecgs is None else ecgs, list() if
                    emgs is None else emgs)
