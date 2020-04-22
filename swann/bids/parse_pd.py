@@ -138,11 +138,11 @@ def _add_events_to_raw(raw, events, pd_event_name, relative_events):
                         description=np.repeat(pd_event_name,
                                               len(onsets)))
     if relative_events is not None:
-        for name, beh_col in relative_events.items():
-            onsets = [events[i] + int(np.round(df[beh_col].loc[i] *
+        for name, beh_array in relative_events.items():
+            onsets = [events[i] + int(np.round(beh_array[i] *
                                       raw.info['sfreq']))
                       for i in sorted(events.keys()) if
-                      not np.isnan(df[beh_col].loc[i])]
+                      not np.isnan(beh_array[i])]
             annot += Annotations(onset=raw.times[np.array(onsets)],
                                  duration=np.repeat(0.1, len(onsets)),
                                  description=np.repeat(name, len(onsets)))
@@ -277,7 +277,7 @@ if __name__ == '__main__':
                              'file column names and names of the events')
         relative_events = [df[rel_event] for rel_event in
                            args.relative_event_cols]
-        relative_events = {name: rel_events for rel_events, name in
+        relative_events = {name: np.array(df[rel_event]) for rel_event, name in
                            zip(relative_events, args.relative_event_names)}
         '''e.g. relative_events = {'ISI Onset': 'fix_duration', 'Go Cue': 'go_time',
                                    'Response': 'response_time'}'''
