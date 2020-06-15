@@ -53,7 +53,7 @@ def plot_erp(rawf, raw, event, events, bl_events, l_freq=None, h_freq=30,
     evoked = epochs.average()
     if l_freq is not None and h_freq is not None:
         evoked = evoked.filter(l_freq=l_freq, h_freq=h_freq)
-    fig = evoked.plot(picks=picks)
+    fig = evoked.plot(picks=picks, show=False)
     fig.suptitle('Event-Related Potential for the {} Event'.format(event))
     fig.savefig(plotf, dpi=300)
     plt.close(fig)
