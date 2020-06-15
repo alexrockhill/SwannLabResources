@@ -30,23 +30,19 @@ def plot_erp(rawf, raw, event, events, bl_events, picks=None, overwrite=False):
     config = get_config()
     raw = raw.copy()
     plotf = derivative_fname(rawf, 'plots/erps',
-                             'event-{}_erp.{}'.format(event, config['fig']))
+                             'event-{}_erp'.format(event), config['fig'])
     if op.isfile(plotf) and not overwrite:
         print('erp plot for {} already exists, '
               'use `overwrite=True` to replot'.format(event))
         return
-    epochs = Epochs(raw, events, tmin=config['tmin'] - 1, baseline=None,
-                    tmax=config['tmax'] + 1, preload=True)
-    bl_epochs = Epochs(raw, bl_events, tmin=config['baseline_tmin'] - 1,
-                       baseline=None, tmax=config['baseline_tmax'] + 1,
+    epochs = Epochs(raw, events, tmin=config['tmin'], baseline=None,
+                    tmax=config['tmax'], preload=True)
+    bl_epochs = Epochs(raw, bl_events, tmin=config['baseline_tmin'],
+                       baseline=None, tmax=config['baseline_tmax'],
                        preload=True)
-    cropped_epochs = epochs.copy().crop(tmin=config['tmin'],
-                                        tmax=config['tmax'])
-    cropped_bl_epochs = bl_epochs.copy().crop(
-        tmin=config['baseline_tmin'], tmax=config['baseline_tmax'])
-    evoked_data = np.median(cropped_bl_epochs._data, axis=0)
-    cropped_epochs.data -= np.median(evoked_data, axis=1)[:, np.newaxis]
-    fig = cropped_epochs.plot_image(picks=picks)[0]
+    evoked_data = np.median(bl_epochs._data, axis=0)
+    epochs._data -= np.median(evoked_data, axis=1)[:, np.newaxis]
+    fig = epochs.averagge()plot_image(picks=picks)[0]
     fig.suptitle('Event-Related Potential for the {} Event'.format(event))
     fig.savefig(plotf, dpi=300)
     plt.close(fig)
