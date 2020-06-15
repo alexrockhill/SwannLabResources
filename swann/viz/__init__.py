@@ -7,3 +7,4 @@ from .beta_bursting import (plot_bursting, plot_power,
                             plot_group_bursting,
                             plot_group_power, plot_group_burst_shape,
                             plot_group_burst_topo)
+from .erp import plot_erp

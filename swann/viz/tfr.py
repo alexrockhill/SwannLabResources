@@ -33,6 +33,10 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
     events : np.array(n_events, 3)
         The events from mne.events_from_annotations or mne.find_events
         corresponding to the event and trials that are described by the name.
+    bl_events: np.array(n_events, 3)
+        The events from mne.events_from_annotations or mne.find_events
+        corresponding to the baseline for the event and trials
+        that are described by the name.
     method : `raw` | `phase-locked` | `non-phase-locked` | `total'
         How to plot the spectrograms:
             raw -- plot without averaging power (default)

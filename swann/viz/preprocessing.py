@@ -9,12 +9,12 @@ def plot_find_bads(rawf, overwrite=False):
     config = get_config()
     badsf = derivative_fname(rawf, 'data', 'bad_channels', 'tsv')
     if op.isfile(badsf) and not overwrite:
-        print('Bad channels already marked, skipping plot raw for ' +
+        print('Bad channels already marked, skipping plot raw for '
               'determining bad channels, use `overwrite=True` to plot')
         return
     else:
         raw = read_raw(rawf.path)
-        print('Plotting PSD spectrogram and raw channels for bad channel ' +
+        print('Plotting PSD spectrogram and raw channels for bad channel '
               'selection, %s' % rawf.path)
         raw.info['bads'] += [ch for ch in get_bads(rawf) if
                              ch not in raw.info['bads']]
@@ -35,7 +35,7 @@ def plot_ica(rawf, method='fastica', n_components=None,
              overwrite=False):
     if (op.isfile(derivative_fname(rawf, 'data', 'ica_components', 'tsv')) and
             not overwrite):
-        print('ICA component choices already saved, use `overwrite=True` ' +
+        print('ICA component choices already saved, use `overwrite=True` '
               'to re-plot.')
         return
     raw = read_raw(rawf.path)
