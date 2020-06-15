@@ -33,8 +33,8 @@ def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
     fastf = derivative_fname(behf, 'data', 'fast', 'tsv')
     dataf = derivative_fname(behf, 'data', 'data', 'tsv')
     blockf = derivative_fname(behf, 'data', 'block_%i', 'tsv')
-    if (all([op.isfile(thisf) for thisf in [slowf, fastf, dataf]]) and
-            not overwrite):
+    if (all([op.isfile(thisf) for thisf in [slowf, fastf, dataf]]
+            ) and not overwrite):
         slow = read_csv(slowf, sep='\t')
         fast = read_csv(fastf, sep='\t')
         data = read_csv(dataf, sep='\t')
@@ -45,7 +45,7 @@ def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
     elif return_saved:
         raise ValueError('Behavior must first be computed')
     if verbose:
-        print('preprocessing %s slowfast behavior' % subject +
+        print('preprocessing %s slowfast behavior' % subject
               (', session %s' % behf.entities['session']
                if 'session' in behf.entities else ''))
     df = read_csv(behf.path, sep='\t')
@@ -59,27 +59,27 @@ def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
                    if slow_fast[str(sf)] == 'fast']]
     fast['answer_key'] = [left_right[ans] for ans in
                           fast[config['answer_col']]]
-    fast2 = fast[(fast[config['response_col']] > min_resp_t) &
-                 (abs(fast[config['button_col']] -
-                  fast['answer_key']) < 0.001)]
+    fast2 = fast[(fast[config['response_col']] > min_resp_t
+                  ) & (abs(fast[config['button_col']
+                                ] - fast['answer_key']) < 0.001)]
     slow = df.loc[[i for i, sf in
                    enumerate(list(df[slow_fast['name_col']]))
                    if slow_fast[str(sf)] == 'slow']]
     slow['answer_key'] = [left_right[ans] for ans in
                           slow[config['answer_col']]]
-    slow2 = slow[(slow[config['response_col']] > min_resp_t) &
-                 (abs(slow[config['button_col']] -
-                  slow['answer_key']) < 0.001)]
+    slow2 = slow[(slow[config['response_col']] > min_resp_t
+                  ) & (abs(slow[config['button_col']
+                                ] - slow['answer_key']) < 0.001)]
     if verbose:
-        print('%i no/wrong ' % (len(fast) - len(fast2)) +
-              'response trials on fast blocks, ' +
+        print('%i ' % (len(fast) - len(fast2)) + 'no/wrong '
+              'response trials on fast blocks, '
               '%i on slow blocks' % (len(slow) - len(slow2)))
     accuracy = (len(slow2) + len(fast2)) / len(df)
     n_to_exclude = (len(fast) - len(fast2)) - (len(slow) - len(slow2))
     if fast_cutoff and n_to_exclude >= 0:
         if verbose:
-            print('%i slowest trials in the slow block ' % n_to_exclude +
-                  'excluded to balance for trials in the fast block ' +
+            print('%i ' % n_to_exclude + 'slowest trials in the slow block '
+                  'excluded to balance for trials in the fast block '
                   'that were cut off')
         slow2 = slow2.reset_index()
         indices = \
@@ -88,14 +88,15 @@ def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
         slow2 = slow2.sort_values(by=config['trial_col'])
     else:
         if fast_cutoff and n_to_exclude < 0:
-            print('WARNING: More no/wrong responses for subject ' +
-                  '%s on slow blocks than fast. ' % subject +
+            print('WARNING: More no/wrong responses for subject '
+                  '%s ' % subject + 'on slow blocks than fast. '
                   'This is not expected, consider excluding subject')
         more = 'fast' if n_to_exclude > 0 else 'slow'
         less = 'slow' if n_to_exclude > 0 else 'fast'
         if verbose:
-            print('%i more trials on %s blocks ' % (abs(n_to_exclude), more) +
-                  'missed than on %s blocks, counterbalancing ' % less +
+            print('%i ' % abs(n_to_exclude) + 'more trials on '
+                  '%s ' % more + 'blocks missed than on '
+                  '%s ' % less + 'blocks, counterbalancing '
                   'by excluding that many %s trials' % less)
         if n_to_exclude > 0:
             indices = np.random.choice(range(len(slow2)), len(fast2),
@@ -114,13 +115,13 @@ def preproc_slowfast(behf, min_resp_t=0.1, fast_cutoff=False,
         slow2[config['response_col']], fast2[config['response_col']])
     blocks = list()
     for b in range(int(len(df) / config['n_trials_per_block'])):
-        this_block = df[(b * config['n_trials_per_block'] <
-                         df[config['trial_col']]) &
-                        (df[config['trial_col']] <=
-                         (b + 1) * config['n_trials_per_block'])]
+        this_block = df[
+            (b * config['n_trials_per_block'] < df[config['trial_col']]
+             ) & (df[config['trial_col']
+                     ] <= (b + 1) * config['n_trials_per_block'])]
         this_block = this_block.reset_index()
-        this_block = this_block[this_block[config['response_col']] >
-                                min_resp_t]
+        this_block = this_block[
+            this_block[config['response_col']] > min_resp_t]
         blocks.append(this_block)
     slow2.to_csv(slowf, sep='\t', index=False)
     fast2.to_csv(fastf, sep='\t', index=False)
@@ -200,11 +201,11 @@ def comparison_stats(behfs, group_by, group0, group1, condition,
                      overwrite=False):
     config = get_config()
     statsf = \
-        op.join(config['bids_dir'], 'derivatives',
-                'comparison_stats_%s-%s_vs_%s_' % (group_by, group0, group1) +
+        op.join(config['bids_dir'], 'derivatives', 'comparison_stats'
+                '_%s-%s_vs_%s' % (group_by, group0, group1) + '_'
                 '%s_slowfast.tsv' % condition)
     if op.isfile(statsf) and not overwrite:
-        print('Skipping comparison stats, already exists ' +
+        print('Skipping comparison stats, already exists '
               'and overwrite is False')
         return
     behfs0 = list()

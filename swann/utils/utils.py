@@ -5,6 +5,7 @@ import json
 from pandas import concat, read_csv
 from bids import BIDSLayout
 import mne
+from warnings import warn
 
 
 def get_config():
@@ -39,10 +40,10 @@ def get_behf(bidsf):
                       run=(bidsf.entities['run'] if
                            'run' in bidsf.entities else None))
     if len(behf) > 1:
-        raise ValueError('More than one matching behavior file ' +
+        raise ValueError('More than one matching behavior file '
                          'found for %s' % bidsf.path)
     elif len(behf) == 0:
-        raise ValueError('No matching behavior file ' +
+        raise ValueError('No matching behavior file '
                          'found for %s' % bidsf.path)
     return behf[0]
 
@@ -133,11 +134,11 @@ def check_overwrite_or_return(name, fname, return_saved, overwrite, verbose):
             print('Overwriting existing %s' % name)
     elif not op.isfile(fname):
         if return_saved:
-            raise ValueError('%s have not been ' % name.capitalize() +
+            raise ValueError('%s' % name.capitalize() + ' have not been '
                              'calculated cannot return saved')
     elif not overwrite:
         if not return_saved:
-            print('%s have already been calculated, ' % name.capitalize() +
+            print('%s' % name.capitalize() + ' have already been calculated, '
                   'use `overwrite=True` to recompute')
         return True
     return False
@@ -220,38 +221,57 @@ def get_events(raw, exclude_events=None):
     if 128 in events[:, 2]:  # weird but where biosemi can loop
         events = events[7:]  # through trigger bits at the start of a file
     n_events = None
-    for event in (list(config['stimuli'].keys()) +
-                  list(config['feedback'].keys())):
+    for event in (list(config['stimuli'].keys()) + list(
+                  config['feedback'].keys())):
         this_events = _this_events(events, event)
         if n_events is None:
             n_events = len(this_events)
         elif n_events != len(this_events):
-            raise ValueError('%i events found previously, ' % n_events +
+            raise ValueError('%i' % n_events + ' events found previously, '
                              '%i events for %s' % (len(this_events), event))
         this_events[:, 2] = np.arange(n_events)
         all_events[event] = this_events
     for event in config['responses']:
         response_events = _this_events(events, event)
         response_ts = set(response_events[:, 0])  # time stamps
-        response_indices = None
-        for stim_event in config['stimuli']:
-            this_response_indices = list()
-            for i, e in enumerate(all_events[stim_event][1:, 0]):
-                for event_ts in range(all_events[stim_event][i, 0], e):
-                    if event_ts in response_ts:
-                        this_response_indices.append(i)
-            for event_ts in range(all_events[stim_event][-1, 0],  # fencepost
-                                  max(events[:, 0]) + 1):
+        response_indices = list()
+        excluded = list()
+        for i in range(n_events):
+            these_response_events = list()
+            min_i = max([all_events[stim_event][i, 0]
+                         for stim_event in config['stimuli']])
+            min_i_check = min([all_events[stim_event][i, 0]
+                               for stim_event in config['stimuli']])
+            if i == n_events - 1:
+                max_i = max(events[:, 0]) + 1
+            else:
+                max_i = min([all_events[stim_event][i + 1, 0]
+                             for stim_event in config['stimuli']])
+            for event_ts in range(min_i, max_i):
                 if event_ts in response_ts:
-                    this_response_indices.append(
-                        len(all_events[stim_event]) - 1)
-            if response_indices is None:
-                response_indices = this_response_indices
-            elif response_indices != this_response_indices:
-                raise ValueError('Responses were not consistent between ' +
-                                 'stimuli')
-        if len(response_indices) < len(response_events):
-            raise ValueError('Not all response events were between stimuli')
+                    these_response_events.append(event_ts)
+            for event_ts in range(min_i_check, min_i):
+                if event_ts in response_ts:
+                    excluded.append(np.where(
+                        response_events[:, 0] == event_ts)[0][0])
+                    stim0 = [stim_event for stim_event in config['stimuli']
+                             if all_events[stim_event][i, 0] == min_i_check][0]
+                    stim1 = [stim_event for stim_event in config['stimuli']
+                             if all_events[stim_event][i, 0] == min_i][0]
+                    warn('{} event found between {} and {} stimuli, '
+                         'for trial {} excluding'.format(event, stim0,
+                                                         stim1, i))
+            if len(these_response_events) > 2:
+                warn('{} response events found for response event {}'
+                     'for stimulus {}'.format(len(these_response_events),
+                                              event, i))
+            elif len(these_response_events) == 1:
+                response_indices.append(np.where(
+                    response_events[:, 0] == these_response_events[0])[0][0])
+        for i, e in enumerate(response_events):
+            if i not in response_indices and i not in excluded:
+                warn('{} {} not between stimuli, excluding'.format(event, i))
+        response_events = response_events[response_indices]
         response_events[:, 2] = response_indices
         all_events[event] = response_events
     if exclude_events is not None:
@@ -329,10 +349,17 @@ def rolling_mean(signal, n=10):
         else:
             rolling_signal += signal
     denomenators = np.concatenate([np.arange(half_n, 2 * half_n),
-                                   np.ones((len(signal) - half_n * 2)) *
-                                   half_n * 2,
+                                   np.ones((len(signal) - half_n * 2)
+                                           ) * half_n * 2,
                                    np.flip(np.arange(half_n, 2 * half_n))])
     return rolling_signal / denomenators
+
+
+def xval_inds(n, prop):
+    config = get_config()
+    np.random.seed(config['seed'])
+    m = np.round(n * prop).as_type(int)
+    return np.random.choice(np.arange(n), size=m, replace=False)
 
 
 '''
