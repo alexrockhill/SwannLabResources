@@ -272,7 +272,7 @@ def _plot_spectrogram(ax, this_tfr, times, vmin, vmax,
     ax.invert_yaxis()
     if show_yticks:
         ax.set_yticks(np.linspace(0, len(freqs), 5))
-        ax.set_yticklabels(['{}'.format(f) for f in
+        ax.set_yticklabels(['{:.2f}'.format(f) for f in
                            freqs[::-int(len(freqs) / 5)]])
     else:
         ax.set_yticklabels([])
