@@ -244,7 +244,7 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                     ((evoked.data[idx], emin, emax) if plot_erp else None))
     fig.subplots_adjust(right=0.85, hspace=0.3)
     cax = fig.add_subplot(position=[0.87, 0.1, 0.05, 0.8])
-    cax = fig.colorbar(cmap, cax=cax, format='%.2f',
+    cax = fig.colorbar(cmap, cax=cax, format='{:.2f}',
                        ticks=[vmin, vmin / 10, vmin / 100,
                               vmax / 100, vmax / 10, vmax])
     cax.set_label(('Log {} Power {} Normalized'.format(method, baseline)
