@@ -80,7 +80,7 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                          'for raw spectrograms')
     plotf = derivative_fname(rawf, 'plots/spectrograms',
                              'event-{}_spectrogram_{}_{}_power'.format(
-                                 event, method, basline),
+                                 event, method, baseline),
                              config['fig'])
     if op.isfile(plotf) and not overwrite:
         print('Spectrogram plot for %s already exists, '
