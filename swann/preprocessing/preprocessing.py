@@ -39,7 +39,8 @@ def set_bads(rawf, bads):
 
 def find_ica(rawf, method='fastica', n_components=None, overwrite=False):
     if (op.isfile(derivative_fname(rawf, 'data', 'ica',
-                                   'fif')) and not overwrite):
+                                   'fif')
+                                   ) and not overwrite):
         print('ICA already computed, use `overwrite=True` to recompute')
         return
     config = get_config()

@@ -68,7 +68,7 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
     config = get_config()
     raw = raw.copy()
     if method not in ('raw', 'phase-locked', 'non-phase-locked', 'total'):
-        raise ValueError('Unrecognized method %s' % method)
+        raise ValueError('Unrecognized method {}'.format(method))
     if picks is None:
         picks = raw.ch_names
     else:
@@ -83,16 +83,19 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                                  event, method, baseline),
                              config['fig'])
     if op.isfile(plotf) and not overwrite:
-        print('Spectrogram plot for %s already exists, '
+        print('Spectrogram plot for {} already exists, '
               'use `overwrite=True` to replot'.format(event))
         return
     if method == 'raw' and plot_bursts:
         bursts = find_bursts(rawf, return_saved=True)
     if isinstance(n_cycles, np.ndarray) and len(freqs) != len(n_cycles):
-        raise ValueError('Mismatch lengths n_cycles %s to freqs %s' %
-                         (n_cycles, freqs))
+        raise ValueError('Mismatch lengths n_cycles {} to freqs {}'.format(
+                         n_cycles, freqs))
     epochs = Epochs(raw, events, tmin=config['tmin'] - 1, baseline=None,
                     tmax=config['tmax'] + 1, preload=True)
+    # align baseline events with epochs with enough events
+    bl_events = np.delete(bl_events, [i for i, e in enumerate(bl_events[:, 2])
+                          if e not in epochs.events[:, 2]], axis=0)
     bl_epochs = Epochs(raw, bl_events, tmin=config['baseline_tmin'] - 1,
                        baseline=None, tmax=config['baseline_tmax'] + 1,
                        preload=True)
@@ -138,14 +141,14 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                                     nave=len(epochs))
         for i, ch in enumerate(epochs.ch_names):
             if verbose:
-                print('\nComputing TFR (%i/%i) for %s... '
+                print('\nComputing TFR ({}/{}) for {}... '
                       'Computing frequency'.format(i, len(epochs.ch_names),
                                                    ch), end=' ', flush=True)  # noqa
             this_epochs = epochs.copy().pick_channels([ch])
             this_bl_epochs = bl_epochs.copy().pick_channels([ch])
             for j, freq in enumerate(freqs):
                 if verbose:
-                    print(freq, end=' ', flush=True)
+                    print('{:.2f}'.format(freq), end=' ', flush=True)
                 this_n_cycles = (n_cycles if isinstance(n_cycles, int) else
                                  n_cycles[i])
                 this_bl_epochs_tfr = \
@@ -186,10 +189,10 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
         vmin, vmax = np.min(epochs_tfr.data), np.max(epochs_tfr.data)
         emin, emax = np.min(cropped_epochs._data), np.max(cropped_epochs._data)
         if verbose:
-            print('Plotting spectrogram for channel %s' % ch_name)
+            print('Plotting spectrogram for channel {}'.format(ch_name))
             if plot_bursts:
                 n_bursts = len(bursts[bursts['channel'] == ch_name])
-                print('%i bursts for this channel total' % n_bursts)
+                print('{} bursts for this channel total'.format(n_bursts))
         nrows = int(np.ceil(len(events) / ncols))
         fig, axes = plt.subplots(nrows, ncols)
         fig.set_size_inches(ncols, nrows)
@@ -244,10 +247,10 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
     cax = fig.colorbar(cmap, cax=cax, format='%.2f',
                        ticks=[vmin, vmin / 10, vmin / 100,
                               vmax / 100, vmax / 10, vmax])
-    cax.set_label(('Log %s Power %s Normalized' % (method, baseline)
+    cax.set_label(('Log {} Power {} Normalized'.format(method, baseline)
                    ).title())
-    fig.suptitle('Time Frequency Decomposition for the %s '
-                 'Event, %s Power'.format(event, baseline.capitalize()))
+    fig.suptitle('Time Frequency Decomposition for the {} '
+                 'Event, {} Power'.format(event, baseline.capitalize()))
     fig.savefig(plotf, dpi=300)
     plt.close(fig)
 
@@ -269,7 +272,7 @@ def _plot_spectrogram(ax, this_tfr, times, vmin, vmax,
     ax.invert_yaxis()
     if show_yticks:
         ax.set_yticks(np.linspace(0, len(freqs), 5))
-        ax.set_yticklabels(['%i' % f for f in
+        ax.set_yticklabels(['{}'.format(f) for f in
                            freqs[::-int(len(freqs) / 5)]])
     else:
         ax.set_yticklabels([])
@@ -279,7 +282,7 @@ def _plot_spectrogram(ax, this_tfr, times, vmin, vmax,
     if show_xticks:
         ax.set_xlabel('Time (s)')
         ax.set_xticks(np.linspace(0, len(times), 3))
-        ax.set_xticklabels(['%.1f' % t for t in
+        ax.set_xticklabels(['{:.1f}'.format(t) for t in
                             np.linspace(times[0], times[-1], 3)])
     else:
         ax.set_xticks([])
