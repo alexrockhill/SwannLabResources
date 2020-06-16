@@ -76,17 +76,15 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
             picks = [picks]
         raw = raw.pick_channels(picks)
     if method == 'raw' and len(picks) > 1:
-        raise ValueError('Only one channel can be plotted at a time ' +
+        raise ValueError('Only one channel can be plotted at a time '
                          'for raw spectrograms')
-    picks_str = '_'.join(picks).replace(' ', '_')
     plotf = derivative_fname(rawf, 'plots/spectrograms',
-                             'event-%s_spectrogram_' % event +
-                             '%s_%s' % (method, picks_str) +
-                             '_%s_power' % baseline,
+                             'event-{}_spectrogram_{}_{}_power'.format(
+                                 event, method, basline),
                              config['fig'])
     if op.isfile(plotf) and not overwrite:
-        print('Spectrogram plot for %s already exists, ' % event +
-              'use `overwrite=True` to replot')
+        print('Spectrogram plot for %s already exists, '
+              'use `overwrite=True` to replot'.format(event))
         return
     if method == 'raw' and plot_bursts:
         bursts = find_bursts(rawf, return_saved=True)
@@ -116,11 +114,10 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
         evoked_tfr = tfr_morlet(evoked, freqs, n_cycles=n_cycles,
                                 use_fft=use_fft, return_itc=False)
         evoked_tfr.crop(tmin=config['tmin'], tmax=config['tmax'])
-        evoked_tfr.data = ((evoked_tfr.data -
-                            np.median(bl_evoked_tfr.data,
-                                      axis=2)[:, :, np.newaxis]) /
-                           np.std(bl_evoked_tfr.data,
-                                  axis=2)[:, :, np.newaxis])
+        evoked_tfr.data = \
+            evoked_tfr.data - np.median(bl_evoked_tfr.data,
+                                        axis=2)[:, :, np.newaxis]
+        evoked_tfr.data /= np.std(bl_evoked_tfr.data, axis=2)[:, :, np.newaxis]
     else:
         if method == 'non-phase-locked':
             epochs._data -= np.median(epochs._data, axis=0)
@@ -141,9 +138,9 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                                     nave=len(epochs))
         for i, ch in enumerate(epochs.ch_names):
             if verbose:
-                print('\nComputing TFR (%i/%i)' % (i, len(epochs.ch_names)) +
-                      'for %s... Computing frequency' % ch,
-                      end=' ', flush=True)  # noqa
+                print('\nComputing TFR (%i/%i) for %s... '
+                      'Computing frequency'.format(i, len(epochs.ch_names),
+                                                   ch), end=' ', flush=True)  # noqa
             this_epochs = epochs.copy().pick_channels([ch])
             this_bl_epochs = bl_epochs.copy().pick_channels([ch])
             for j, freq in enumerate(freqs):
@@ -165,22 +162,25 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                     tmin=config['tmin'], tmax=config['tmax'])
                 full_data = np.concatenate([this_bl_epochs_tfr.data,
                                             this_epochs_tfr.data], axis=3)
-                epochs_tfr.data[:, i:i + 1, j:j + 1, :] = \
-                    ((this_epochs_tfr.data -
-                      np.median(full_data, axis=3)[:, :, :, np.newaxis]) /
-                     np.std(full_data, axis=3)[:, :, :, np.newaxis])
+                epochs_tfr.data[:, i:i + 1, j:j + 1, :] = this_epochs_tfr.data
+                epochs_tfr.data[:, i:i + 1, j:j + 1, :] -= \
+                    np.median(full_data, axis=3)[:, :, :, np.newaxis]
+                epochs_tfr.data[:, i:i + 1, j:j + 1, :] /= \
+                    np.std(full_data, axis=3)[:, :, :, np.newaxis]
                 bl_epochs_tfr.data[:, i:i + 1, j:j + 1, :] = \
-                    ((this_bl_epochs_tfr.data -
-                      np.median(full_data, axis=3)[:, :, :, np.newaxis]) /
-                     np.std(full_data, axis=3)[:, :, :, np.newaxis])
+                    this_bl_epochs_tfr.data
+                bl_epochs_tfr.data[:, i:i + 1, j:j + 1, :] -= \
+                    np.median(full_data, axis=3)[:, :, :, np.newaxis]
+                bl_epochs_tfr.data[:, i:i + 1, j:j + 1, :] /= \
+                    np.std(full_data, axis=3)[:, :, :, np.newaxis]
                 if method != 'raw':
                     this_evoked_tfr = np.median(epochs_tfr.data[:, i, j],
                                                 axis=0)
                     this_bl_evoked_tfr = np.median(bl_epochs_tfr.data[:, i, j],
                                                    axis=0)
                     evoked_tfr.data[i, j] = \
-                        ((this_evoked_tfr - np.median(this_bl_evoked_tfr)) /
-                         np.std(this_bl_evoked_tfr))
+                        this_evoked_tfr - np.median(this_bl_evoked_tfr)
+                    evoked_tfr.data[i, j] /= np.std(this_bl_evoked_tfr)
     if method == 'raw':
         ch_name = epochs_tfr.ch_names[0]
         vmin, vmax = np.min(epochs_tfr.data), np.max(epochs_tfr.data)
@@ -246,8 +246,8 @@ def plot_spectrogram(rawf, raw, event, events, bl_events,
                               vmax / 100, vmax / 10, vmax])
     cax.set_label(('Log %s Power %s Normalized' % (method, baseline)
                    ).title())
-    fig.suptitle('Time Frequency Decomposition for the %s ' % event +
-                 'Event, %s Power' % baseline.capitalize())
+    fig.suptitle('Time Frequency Decomposition for the %s '
+                 'Event, %s Power'.format(event, baseline.capitalize()))
     fig.savefig(plotf, dpi=300)
     plt.close(fig)
 
