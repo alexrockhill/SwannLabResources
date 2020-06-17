@@ -35,6 +35,7 @@ def plot_erp(rawf, raw, event, events, bl_events, l_freq=None, h_freq=30,
     '''
     config = get_config()
     raw = raw.copy()
+    raw.load_data()
     plotf = derivative_fname(rawf, 'plots/erps',
                              'event-{}_erp'.format(event), config['fig'])
     if not op.isdir(op.dirname(plotf)):
