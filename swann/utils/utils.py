@@ -215,9 +215,17 @@ def read_raw(raw_path, data_ch_type=None, eogs=None, ecgs=None, emgs=None,
 def get_events(raw, exclude_events=None):
     config = get_config()
     all_events = dict()
-    events, _ = mne.events_from_annotations(raw)
-    if events.size == 0:
-        events = mne.find_events(raw)
+    # use bids events
+    event_fname = raw.filenames[0].replace(raw.filenames[0].split('_')[-1],
+                                           'events.tsv')
+    if op.isfile(event_fname):
+        events_df = read_csv(event_fname, sep='\t')
+        events = np.array(events_df[['sample', 'duration', 'value']],
+                          dtype=int)
+    else:  # this would be for events directly from the file
+        events, _ = mne.events_from_annotations(raw)
+        if events.size == 0:
+            events = mne.find_events(raw)
     if 128 in events[:, 2]:  # weird but where biosemi can loop
         events = events[7:]  # through trigger bits at the start of a file
     n_events = None
