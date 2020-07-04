@@ -14,11 +14,11 @@ def _find_pd_candidates(pd, sfreq, chunk, baseline, zscore, min_i, overlap,
     if verbose:
         print('Finding photodiode events')
     ''' Move in chunks twice as long as your longest photodiode signal
-        with the first 0.25 as baseline o test whether the signal goes
+        with the first 0.25 as baseline to test whether the signal goes
         above/below baseline and back below/above.
         The event onset must have a minimum length `min_i` and
-        `overlap` should be set such that no events will be missed'''
-    #  gets cut off, you'll find it the next chunk
+        `overlap` should be set such that no events will be missed
+        and if a pd event gets cut off, you'll find it the next chunk'''
     chunk_i = int(chunk * sfreq)
     baseline_i = int(chunk_i * baseline / 2)
     pd_candidates = set()
@@ -26,7 +26,7 @@ def _find_pd_candidates(pd, sfreq, chunk, baseline, zscore, min_i, overlap,
                         int(chunk_i * overlap))):
         b = pd[i - baseline_i:i]
         s = (pd[i:i + chunk_i] - np.median(b)) / np.std(b)
-        for binary_s in [s > zscore, s < zscore]:
+        for binary_s in [s > zscore, s < -zscore]:
             if not binary_s[0]:  # must start off
                 onset = np.where(binary_s)[0]
                 if onset.size > min_i:
@@ -42,9 +42,12 @@ def _find_pd_candidates(pd, sfreq, chunk, baseline, zscore, min_i, overlap,
 
 def _nearest_pd_event(b_event, pd_candidates, max_index):
     j = 0
-    while (int(b_event + j) not in pd_candidates and
-           int(b_event - j) not in pd_candidates and
-           b_event + j < max_index and b_event - j > 0):
+    # short circuit for alignments way to far forward
+    if b_event >= max_index:
+        return max_index - b_event
+    while (int(b_event + j) not in
+           pd_candidates and int(b_event - j) not in
+           pd_candidates and b_event + j < max_index and b_event - j > 0):
         j += 1
     return j
 
@@ -52,7 +55,7 @@ def _nearest_pd_event(b_event, pd_candidates, max_index):
 def _find_best_alignment(beh_events, pd_candidates, first_pd_alignment_n,
                          verbose=True):
     if verbose:
-        print('Finding best alignment with behavioral events using the ' +
+        print('Finding best alignment with behavioral events using the '
               'first %i events' % first_pd_alignment_n)
     min_error = best_alignment = best_errors = None
     max_index = max(pd_candidates)
@@ -68,7 +71,7 @@ def _find_best_alignment(beh_events, pd_candidates, first_pd_alignment_n,
             min_error = median_error
             best_errors = errors
     if verbose:
-        print('Best alignment starting with photodiode event ' +
+        print('Best alignment starting with photodiode event '
               '#%i, min %i, q1 %i, med %i, q3 %i, max %i ' %
               (best_alignment, min(best_errors),
                np.quantile(best_errors, 0.25), np.median(best_errors),
@@ -139,10 +142,9 @@ def _add_events_to_raw(raw, events, pd_event_name, relative_events):
                                               len(onsets)))
     if relative_events is not None:
         for name, beh_array in relative_events.items():
-            onsets = [events[i] + int(np.round(beh_array[i] *
-                                      raw.info['sfreq']))
-                      for i in sorted(events.keys()) if
-                      not np.isnan(beh_array[i])]
+            onsets = \
+                [events[i] + int(np.round(beh_array[i] * raw.info['sfreq']))
+                 for i in sorted(events.keys()) if not np.isnan(beh_array[i])]
             annot += Annotations(onset=raw.times[np.array(onsets)],
                                  duration=np.repeat(0.1, len(onsets)),
                                  description=np.repeat(name, len(onsets)))
@@ -152,7 +154,7 @@ def _add_events_to_raw(raw, events, pd_event_name, relative_events):
 
 def parse_pd_events(eegf, beh_events, pd_event_name='Fixation', chunk=2,
                     baseline=0.25, overlap=0.25, exclude_shift=0.1, zscore=10,
-                    min_i=10, first_pd_alignment_n=10, relative_events=None,
+                    min_i=10, first_pd_alignment_n=20, relative_events=None,
                     overwrite_raw=True, verbose=True):
     ''' Parses photodiode events from a likely very corrupted channel
         using behavioral data to sync events to determine which
@@ -217,13 +219,14 @@ def parse_pd_events(eegf, beh_events, pd_event_name='Fixation', chunk=2,
             pds.append(pd)
             pd = None
     if len(pds) == 2:
-        pd = (raw._data[raw.ch_names.index(pds[0])] -
-              raw._data[raw.ch_names.index(pds[1])])
+        pd = raw._data[raw.ch_names.index(pds[0])]
+        pd -= raw._data[raw.ch_names.index(pds[1])]
     else:
         pd = raw._data[raw.ch_names.index(pds[0])]
     pd_candidates = _find_pd_candidates(pd, raw.info['sfreq'], chunk, baseline,
                                         zscore, min_i, overlap, verbose)
-    first_pd_alignment_n = min([len(pd_candidates) / 2, first_pd_alignment_n])
+    first_pd_alignment_n = int(min([len(pd_candidates) / 2,
+                                    first_pd_alignment_n]))
     beh_events *= raw.info['sfreq']
     beh_events -= beh_events[0]
     best_alignment = _find_best_alignment(beh_events, pd_candidates,
@@ -260,11 +263,14 @@ if __name__ == '__main__':
                         'photodiode-behavioral event difference')
     parser.add_argument('--relative_event_cols', type=str, nargs='*',
                         required=False,
+                        default=['ISI Onset', 'Go Cue', 'Response'],
                         help='A behavioral column in the tsv file that has '
                         'the time relative to the photodiode events on the '
                         'same trial as in the `--beh_col event.')
     parser.add_argument('--relative_event_names', type=str, nargs='*',
-                        required=False, help='The name of the corresponding '
+                        required=False,
+                        default=['fix_duration', 'go_time', 'response_time'],
+                        help='The name of the corresponding '
                         '`--relative_event_cols` events')
     args = parser.parse_args()
     df = read_csv(args.behf, sep='\t')
@@ -279,7 +285,7 @@ if __name__ == '__main__':
                            args.relative_event_cols]
         relative_events = {name: rel_events for rel_events, name in
                            zip(relative_events, args.relative_event_names)}
-        '''e.g. relative_events_names = ['ISI Onset', 'Go Cue', 'Response']
+        '''e.g. relative_event_names = ['ISI Onset', 'Go Cue', 'Response']
             relative_event_cols = ['fix_duration', 'go_time', 'response_time']
         '''
         print(relative_events)
