@@ -37,6 +37,9 @@ def _find_pd_candidates(pd, sfreq, chunk, baseline, zscore, min_i, overlap,
                         if not any([i + e + j in pd_candidates for j in
                                     range(-1, 2)]):  # off by one error
                             pd_candidates.add(i + e)
+    if verbose:
+        print('{} photodiode candidate events found'.format(
+            len(pd_candidates)))
     return pd_candidates
 
 
@@ -76,11 +79,20 @@ def _find_best_alignment(beh_events, pd_candidates, first_pd_alignment_n,
               (best_alignment, min(best_errors),
                np.quantile(best_errors, 0.25), np.median(best_errors),
                np.quantile(best_errors, 0.75), max(best_errors)))
-    return best_alignment
+    if len(sorted_pds) - best_alignment >= len(beh_events):  # extra pds at end
+        diffs = \
+            [pd_e - beh_e for pd_e, beh_e in
+             zip(sorted_pds[best_alignment:best_alignment + len(beh_events)],
+                 beh_events)]
+    else:  # extra beh events (missing last 1+ pd events for whatever reason)
+        diffs = [pd_e - beh_e for pd_e, beh_e in
+                 zip(sorted_pds[best_alignment:],
+                     beh_events[:len(sorted_pds) - best_alignment])]
+    return np.median(diffs)
 
 
 def _exclude_ambiguous_events(beh_events, pd_candidates, pd, sfreq, chunk,
-                              best_alignment, exclude_shift, verbose=True):
+                              best_diff, exclude_shift, verbose=True):
     if verbose:
         print('Excluding events that have zero close events or more than '
               'one photodiode event within `chunk` time')
@@ -89,7 +101,7 @@ def _exclude_ambiguous_events(beh_events, pd_candidates, pd, sfreq, chunk,
     chunk_i = int(chunk * sfreq)
     max_index = max(pd_candidates)
     sorted_pds = np.array(sorted(pd_candidates))
-    beh_events_aligned = beh_events.copy() + sorted_pds[best_alignment]
+    beh_events_aligned = beh_events.copy() + best_diff
     for i, b_event in enumerate(beh_events_aligned):
         j = _nearest_pd_event(b_event, pd_candidates, max_index)
         if j > sfreq * exclude_shift:
@@ -229,11 +241,11 @@ def parse_pd_events(eegf, beh_events, pd_event_name='Fixation', chunk=2,
                                     first_pd_alignment_n]))
     beh_events *= raw.info['sfreq']
     beh_events -= beh_events[0]
-    best_alignment = _find_best_alignment(beh_events, pd_candidates,
-                                          first_pd_alignment_n, verbose)
+    best_diff = _find_best_alignment(beh_events, pd_candidates,
+                                     first_pd_alignment_n, verbose)
     events = _exclude_ambiguous_events(beh_events, pd_candidates, pd,
                                        raw.info['sfreq'], chunk,
-                                       best_alignment, exclude_shift, verbose)
+                                       best_diff, exclude_shift, verbose)
     raw = _add_events_to_raw(raw, events, pd_event_name, relative_events)
     return raw, pds
 
@@ -263,21 +275,21 @@ if __name__ == '__main__':
                         'photodiode-behavioral event difference')
     parser.add_argument('--relative_event_cols', type=str, nargs='*',
                         required=False,
-                        default=['ISI Onset', 'Go Cue', 'Response'],
+                        default=['fix_duration', 'go_time', 'response_time'],
                         help='A behavioral column in the tsv file that has '
                         'the time relative to the photodiode events on the '
                         'same trial as in the `--beh_col event.')
     parser.add_argument('--relative_event_names', type=str, nargs='*',
                         required=False,
-                        default=['fix_duration', 'go_time', 'response_time'],
+                        default=['ISI Onset', 'Go Cue', 'Response'],
                         help='The name of the corresponding '
                         '`--relative_event_cols` events')
     args = parser.parse_args()
     df = read_csv(args.behf, sep='\t')
     beh_events = np.array(df[args.beh_col])
     if args.diff:
-        beh_events = np.concatentate([0], np.cumsum(beh_events))
-    if args.relative_event_names is not None:
+        beh_events = np.array([0] + list(np.cumsum(beh_events)))
+    if args.relative_event_names:
         if len(args.relative_event_cols) != len(args.relative_event_names):
             raise ValueError('Mismatched length of relative event behavior '
                              'file column names and names of the events')
